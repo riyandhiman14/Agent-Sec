@@ -36,6 +36,9 @@ class PolicyEngine:
         # Track whether IAM format was loaded
         self._iam_loaded: bool = False
 
+        # Track whether default was explicitly set by YAML
+        self._default_set_by_yaml: bool = False
+
     # -- Legacy compat properties --
 
     @property
@@ -117,7 +120,7 @@ class PolicyEngine:
             # Tag loaded statements with source file
             for stmt in self._statements:
                 if not stmt.sid:
-                    stmt.sid = f"{policy_name}:{stmt.sid}" if stmt.sid else policy_name
+                    stmt.sid = policy_name
                 stmt.source = path
         elif "rules" in parsed:
             self._load_legacy_format(parsed)
@@ -157,6 +160,7 @@ class PolicyEngine:
         # Set default from YAML if present
         default_str = parsed.get("default", "deny")
         self._default = _EFFECT_MAP.get(default_str, PolicyStatus.BLOCK)
+        self._default_set_by_yaml = True
 
         statements = parsed.get("statements", [])
         if not isinstance(statements, list):
@@ -169,8 +173,9 @@ class PolicyEngine:
 
     def _load_legacy_format(self, parsed: Dict[str, Any]) -> None:
         """Parse legacy rules: format."""
-        # Legacy format defaults to ALLOW for backward compat
-        if not self._statements:
+        # Legacy format defaults to ALLOW for backward compat,
+        # but only if no IAM format has already set the default
+        if not self._default_set_by_yaml and not self._iam_loaded:
             self._default = PolicyStatus.ALLOW
 
         rules = parsed.get("rules")

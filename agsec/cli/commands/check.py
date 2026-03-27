@@ -19,6 +19,7 @@ def register(subparsers):
     p.add_argument("--policy-dir", help="Override policy directory")
     p.add_argument("--action", help="Action name (if not reading from stdin)")
     p.add_argument("--params", help="JSON params (if not reading from stdin)")
+    p.add_argument("--strict", action="store_true", help="Fail closed if no policies found (block all)")
     p.set_defaults(func=run)
 
 
@@ -31,7 +32,11 @@ def run(args):
             _exit_error(args.format, "Invalid JSON on stdin", 1)
             return
     elif args.action:
-        raw = {"action": args.action, "params": json.loads(args.params or "{}")}
+        try:
+            raw = {"action": args.action, "params": json.loads(args.params or "{}")}
+        except json.JSONDecodeError:
+            _exit_error(args.format, "Invalid JSON in --params", 1)
+            return
     else:
         _exit_error(args.format, "No input. Pipe JSON via stdin or use --action/--params.", 1)
         return
@@ -51,14 +56,22 @@ def run(args):
     # Find and load policies
     try:
         policy_dir = args.policy_dir or find_policy_dir()
-    except FileNotFoundError as e:
-        # No policies = allow everything (fail open for usability)
+    except FileNotFoundError:
+        if getattr(args, "strict", False):
+            _exit_error(args.format, "No policies found. Blocking all actions (--strict mode).", 1)
+            return
+        # Fail-open: allow when no policies found (warn on stderr)
+        print('{"warning": "No agsec policies found. Run agsec init."}', file=sys.stderr)
         sys.exit(0)
 
     engine = PolicyEngine()
     try:
         engine.load_from_directory(policy_dir)
     except (ValueError, FileNotFoundError):
+        if getattr(args, "strict", False):
+            _exit_error(args.format, "Failed to load policies. Blocking all actions.", 1)
+            return
+        print('{"warning": "Failed to load policies."}', file=sys.stderr)
         sys.exit(0)
 
     # Evaluate

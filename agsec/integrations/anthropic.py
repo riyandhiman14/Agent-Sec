@@ -90,6 +90,12 @@ def protect(
     original_create = client.messages.create
 
     def wrapped_create(*args, **kwargs):
+        if kwargs.get("stream", False):
+            raise NotImplementedError(
+                "agsec does not yet support streaming responses. "
+                "Use stream=False or call the original client directly."
+            )
+
         response = original_create(*args, **kwargs)
 
         # No content — pass through

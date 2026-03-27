@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import sys
 
@@ -50,7 +51,7 @@ def _install_claude_code(project_dir: str):
 
     hook_command = f"{agsec_cmd} check --format=claude-code"
     if policy_dir:
-        hook_command += f" --policy-dir {policy_dir}"
+        hook_command += f" --policy-dir {shlex.quote(policy_dir)}"
 
     new_hook = {
         "matcher": "",

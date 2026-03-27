@@ -67,7 +67,8 @@ def _check_tool_call(engine, name, arguments):
         try:
             params = json.loads(arguments)
         except (json.JSONDecodeError, TypeError):
-            params = {}
+            # Malformed arguments — block by default (fail safe)
+            return PolicyStatus.BLOCK, "Tool arguments could not be parsed", {"matched_by": "parse_error"}
     elif isinstance(arguments, dict):
         params = arguments
 
@@ -105,6 +106,12 @@ def protect(
     original_create = client.chat.completions.create
 
     def wrapped_create(*args, **kwargs):
+        if kwargs.get("stream", False):
+            raise NotImplementedError(
+                "agsec does not yet support streaming responses. "
+                "Use stream=False or call the original client directly."
+            )
+
         response = original_create(*args, **kwargs)
 
         # No tool calls — pass through
