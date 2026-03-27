@@ -11,9 +11,13 @@ Minimal open-source control layer for agent actions.
 ### Setup
 
 ```bash
-pip install -e .
-pip install pre-commit
+pip install -e .[dev]
 pre-commit install
+```
+
+Or for minimal install:
+```bash
+pip install -e .
 ```
 
 ### Quick start
