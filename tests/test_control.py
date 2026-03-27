@@ -1,6 +1,8 @@
 import logging
 
-from agsec import ControlLayer, PolicyEngine, PolicyResult, PolicyStatus
+import json
+
+from agsec import AuditStore, ControlLayer, PolicyEngine, PolicyResult, PolicyStatus
 from agsec.exceptions import PolicyViolationError
 
 
@@ -118,7 +120,7 @@ rules:
     engine = PolicyEngine()
     engine.load_rules_from_yaml(yaml_rules)
 
-    control = ControlLayer(policy_engine=engine)
+    control = ControlLayer(policy_engine=engine, audit_store=None)
 
     @control.register_action("payment")
     def payment(amount):
@@ -149,7 +151,7 @@ rules:
     engine = PolicyEngine()
     engine.load_rules_from_yaml(yaml_rules)
 
-    control = ControlLayer(policy_engine=engine)
+    control = ControlLayer(policy_engine=engine, audit_store=None)
 
     @control.register_action("data_export")
     def data_export(table, export_type):
@@ -177,7 +179,7 @@ rules:
     engine = PolicyEngine()
     engine.load_rules_from_yaml(yaml_rules)
 
-    control = ControlLayer(policy_engine=engine)
+    control = ControlLayer(policy_engine=engine, audit_store=None)
 
     @control.register_action("password_reset")
     def password_reset(user_id):
@@ -188,3 +190,132 @@ rules:
         assert False
     except PolicyViolationError:
         pass
+
+
+def test_audit_store_logging(tmp_path):
+    db_path = str(tmp_path / "test.db")
+    audit = AuditStore(db_path)
+    control = ControlLayer(audit_store=audit)
+
+    @control.register_action("test_action")
+    def test_action(value):
+        return {"result": value * 2}
+
+    result = control.execute("test_action", {"value": 5})
+    executions = audit.get_executions()
+    assert len(executions) == 1
+    assert executions[0]["action"] == "test_action"
+    assert executions[0]["policy_status"] == "allow"
+    assert json.loads(executions[0]["result"]) == {"result": 10}
+
+
+def test_audit_store_block_logging(tmp_path):
+    db_path = str(tmp_path / "test_block.db")
+    audit = AuditStore(db_path)
+    engine = PolicyEngine()
+    engine.add_rule(lambda action, params, ctx: PolicyResult(status=PolicyStatus.BLOCK, reason="blocked"))
+    control = ControlLayer(policy_engine=engine, audit_store=audit)
+
+    @control.register_action("blocked_action")
+    def blocked_action():
+        return "should not run"
+
+    try:
+        control.execute("blocked_action", {})
+    except PolicyViolationError:
+        pass
+
+    executions = audit.get_executions()
+    assert len(executions) == 1
+    assert executions[0]["action"] == "blocked_action"
+    assert executions[0]["policy_status"] == "block"
+    assert executions[0]["result"] is None
+
+
+def test_audit_store_stats(tmp_path):
+    db_path = str(tmp_path / "test_stats.db")
+    audit = AuditStore(db_path)
+    
+    # Allow action
+    control = ControlLayer(audit_store=audit)
+    @control.register_action("allow_action")
+    def allow_action():
+        return "ok"
+    control.execute("allow_action", {})
+
+    # Block action
+    engine = PolicyEngine()
+    engine.add_rule(lambda action, params, ctx: PolicyResult(status=PolicyStatus.BLOCK) if action == "block_action" else None)
+    control_block = ControlLayer(policy_engine=engine, audit_store=audit)
+    @control_block.register_action("block_action")
+    def block_action():
+        return "blocked"
+    try:
+        control_block.execute("block_action", {})
+    except PolicyViolationError:
+        pass
+
+    stats = audit.get_execution_stats()
+    assert stats["total_executions"] == 2
+    assert stats["allowed"] == 1
+    assert stats["blocked"] == 1
+
+
+def test_exception_hierarchy():
+    """Test that new exception types inherit from AgsecError and have proper structure."""
+    from agsec.exceptions import (
+        AgsecError,
+        ConfigurationError,
+        InvalidConfigError,
+        ParameterValidationError,
+        SecurityViolationError,
+        DependencyError,
+        TimeoutError,
+        ValidationError,
+        SecurityError,
+        InitializationError,
+        RuntimeError,
+    )
+
+    # Test base exception
+    base_err = AgsecError("test message", "TEST_CODE", {"key": "value"})
+    assert base_err.code == "TEST_CODE"
+    assert base_err.details["key"] == "value"
+
+    # Test configuration error
+    config_err = InvalidConfigError("/path/config.yaml", "invalid format", {"line": 10})
+    assert config_err.code == "INVALID_CONFIG"
+    assert config_err.details["config_path"] == "/path/config.yaml"
+    assert config_err.details["line"] == 10
+    assert isinstance(config_err, ConfigurationError)
+    assert isinstance(config_err, AgsecError)
+
+    # Test validation error
+    param_err = ParameterValidationError("test_action", "amount", "invalid", "int", "not a number")
+    assert param_err.code == "PARAMETER_VALIDATION_ERROR"
+    assert param_err.details["action"] == "test_action"
+    assert param_err.details["param"] == "amount"
+    assert param_err.details["expected"] == "int"
+    assert isinstance(param_err, ValidationError)
+
+    # Test security error
+    sec_err = SecurityViolationError("unauthorized_access", {"user": "hacker", "resource": "admin"})
+    assert sec_err.code == "SECURITY_VIOLATION"
+    assert sec_err.details["violation_type"] == "unauthorized_access"
+    assert sec_err.details["user"] == "hacker"
+    assert isinstance(sec_err, SecurityError)
+
+    # Test initialization error
+    dep_err = DependencyError("requests", "2.25.0", "2.20.0")
+    assert dep_err.code == "DEPENDENCY_ERROR"
+    assert dep_err.details["dependency"] == "requests"
+    assert dep_err.details["version_required"] == "2.25.0"
+    assert dep_err.details["version_found"] == "2.20.0"
+    assert isinstance(dep_err, InitializationError)
+
+    # Test runtime error
+    timeout_err = TimeoutError("policy_evaluation", 30.0)
+    assert timeout_err.code == "TIMEOUT_ERROR"
+    assert timeout_err.details["operation"] == "policy_evaluation"
+    assert timeout_err.details["timeout_seconds"] == 30.0
+    assert isinstance(timeout_err, RuntimeError)

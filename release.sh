@@ -7,5 +7,6 @@ python3 -m build
 
 echo "Uploading to PyPI (requires PYPI_API_TOKEN in env)..."
 python3 -m twine upload dist/* --verbose
+rm -dr dist/
 
 echo "Release complete."

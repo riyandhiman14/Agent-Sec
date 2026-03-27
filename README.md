@@ -23,7 +23,7 @@ AI Agent Action Firewall - A minimal, control layer for agent actions.
 - ✅ **YAML Policies**: Human-readable policy definitions
 - ✅ **Context Awareness**: Rules can access parameters and context
 - ✅ **Priority & Matching**: Advanced rule evaluation (priority, all/any matching)
-- ✅ **Audit Logging**: Built-in logging for all decisions
+- ✅ **Audit Logging**: Built-in persistent audit store for compliance
 - ✅ **Python Package**: Easy installation via PyPI
 
 ## Installation
@@ -61,6 +61,10 @@ def send_email(to, subject, body):
 # Execute with default allow policy
 result = control.execute("send_email", {"to": "user@example.com", "subject": "Hello", "body": "Hi!"})
 print(result.result)  # {"sent_to": "user@example.com", "status": "success"}
+
+# View audit logs
+executions = control.audit_store.get_executions()
+print(f"Total executions: {len(executions)}")
 ```
 
 ### With YAML Policies
@@ -123,11 +127,20 @@ Handles policy evaluation.
 - `load_rules_from_yaml_file(path)`: Load rules from YAML file
 - `evaluate(action, params, context=None)`: Evaluate policy for action
 
-### Policy Status
+### AuditStore
 
-- `PolicyStatus.ALLOW`: Allow action execution
-- `PolicyStatus.BLOCK`: Block action execution
-- `PolicyStatus.REVIEW`: Mark for manual review
+Persistent storage for execution logs and compliance.
+
+```python
+AuditStore(db_path="audit.db")  # File-based, or ":memory:" for in-memory
+```
+
+#### Methods
+
+- `log_execution(execution, context, error)`: Log an execution result
+- `get_executions(action, limit, offset)`: Query execution history
+- `get_execution_stats()`: Get summary statistics
+- `export_to_json(file_path)`: Export logs to JSON
 
 ### YAML Policy Schema
 
@@ -167,6 +180,91 @@ pytest
 ```bash
 python -m build
 ```
+
+## Error Handling
+
+agsec provides a comprehensive exception hierarchy for robust error handling in production environments. All exceptions inherit from `AgsecError` and include structured error codes and detailed context.
+
+### Exception Hierarchy
+
+```
+AgsecError (base)
+├── ConfigurationError
+│   ├── InvalidConfigError
+│   ├── MissingConfigError
+│   └── ConfigValidationError
+├── RegistryError
+│   ├── ActionNotFoundError
+│   ├── DuplicateActionError
+│   ├── InvalidActionError
+│   └── RegistryFullError
+├── PolicyError
+│   ├── PolicyParseError
+│   ├── InvalidPolicyError
+│   ├── PolicyConflictError
+│   ├── PolicyTimeoutError
+│   └── PolicyViolationError
+├── ActionExecutionError
+├── AuditError
+│   ├── AuditConnectionError
+│   ├── AuditIntegrityError
+│   └── AuditStorageError
+├── ValidationError
+│   ├── ParameterValidationError
+│   ├── TypeValidationError
+│   └── SchemaValidationError
+├── SecurityError
+│   ├── SecurityViolationError
+│   ├── TamperingError
+│   └── IntegrityError
+├── InitializationError
+│   ├── DependencyError
+│   └── EnvironmentError
+└── RuntimeError
+    ├── TimeoutError
+    ├── ResourceError
+    └── ConcurrencyError
+```
+
+### Error Handling Example
+
+```python
+from agsec import ControlLayer
+from agsec.exceptions import (
+    PolicyViolationError,
+    ActionExecutionError,
+    ConfigurationError
+)
+
+control = ControlLayer()
+
+try:
+    result = control.execute("payment", {"amount": 10000})
+except PolicyViolationError as e:
+    print(f"Policy blocked: {e.details['reason']}")
+    # Handle policy violation
+except ActionExecutionError as e:
+    print(f"Action failed: {e.details['original_error']}")
+    # Handle execution error
+except ConfigurationError as e:
+    print(f"Config error: {e.details}")
+    # Handle configuration issues
+```
+
+### Error Details
+
+All exceptions provide:
+- **Error code**: Machine-readable identifier (e.g., `"POLICY_VIOLATION"`)
+- **Structured details**: Context-specific information in `details` dict
+- **Descriptive message**: Human-readable error description
+
+Common error codes:
+- `ACTION_NOT_FOUND`: Action not registered
+- `POLICY_VIOLATION`: Policy blocked the action
+- `ACTION_EXECUTION_ERROR`: Action execution failed
+- `INVALID_CONFIG`: Configuration file invalid
+- `DEPENDENCY_ERROR`: Required dependency missing
+- `TIMEOUT_ERROR`: Operation timed out
 
 ## Contributing
 
