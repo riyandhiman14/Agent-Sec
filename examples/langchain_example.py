@@ -1,70 +1,107 @@
 """
-agsec + LangChain — protect agent tools with inline policies.
+Real LangChain example with agsec protection.
 
-Install: pip install agsec[langchain] langchain-core
+Run: pip install agsec[langchain] langchain-openai
+     export OPENAI_API_KEY=sk-...
+     python examples/langchain_example.py
 """
 
 from agsec.integrations.langchain import guard, allow, deny, review, param
 
-# --- Assume these are your LangChain tools ---
-# from langchain_core.tools import tool
-#
-# @tool
-# def search(query: str) -> str:
-#     """Search the web."""
-#     return f"Results for: {query}"
-#
-# @tool
-# def send_email(to: str, subject: str, body: str) -> str:
-#     """Send an email."""
-#     return f"Email sent to {to}"
-#
-# @tool
-# def payment(amount: float, recipient: str) -> str:
-#     """Process a payment."""
-#     return f"Charged {amount} to {recipient}"
-#
-# @tool
-# def delete_record(table: str, id: int) -> str:
-#     """Delete a database record."""
-#     return f"Deleted {id} from {table}"
+# --- Step 1: Define your tools ---
 
-# --- Protect your tools with one line ---
+try:
+    from langchain_core.tools import tool
 
-# protected_tools = guard(
-#     allow(search),                                    # search is always fine
-#     review(send_email),                               # emails need human approval
-#     deny(delete_record),                              # never let the agent delete
-#     deny(payment).when(param("amount") > 10000),      # block large payments
-# )
+    @tool
+    def search(query: str) -> str:
+        """Search the web for information."""
+        return f"Results for: {query}"
 
-# --- Pass to your agent ---
+    @tool
+    def calculator(expression: str) -> str:
+        """Evaluate a math expression."""
+        try:
+            return str(eval(expression))  # noqa: S307
+        except Exception as e:
+            return f"Error: {e}"
 
-# from langgraph.prebuilt import create_react_agent
-# agent = create_react_agent(llm, protected_tools)
+    @tool
+    def send_email(to: str, subject: str, body: str) -> str:
+        """Send an email to someone."""
+        return f"Email sent to {to}: {subject}"
 
-# --- What happens ---
-# agent calls search("python docs")         -> ALLOWED
-# agent calls send_email(...)               -> BLOCKED (review required)
-# agent calls delete_record(...)            -> BLOCKED
-# agent calls payment(amount=500)           -> ALLOWED
-# agent calls payment(amount=50000)         -> BLOCKED (amount > 10000)
+    @tool
+    def delete_database(table: str) -> str:
+        """Delete a database table."""
+        return f"Deleted table: {table}"
 
-print("""
-agsec LangChain integration example.
+    @tool
+    def process_payment(amount: float, recipient: str) -> str:
+        """Process a payment."""
+        return f"Paid ${amount} to {recipient}"
 
-Usage:
-  from agsec.integrations.langchain import guard, allow, deny, review, param
+    # --- Step 2: Protect tools with one line ---
 
-  protected_tools = guard(
-      allow(search, calculator),
-      review(send_email),
-      deny(delete_record),
-      deny(payment).when(param("amount") > 10000),
-  )
+    protected_tools = guard(
+        allow(search, calculator),
+        review(send_email),
+        deny(delete_database),
+        deny(process_payment).when(param("amount") > 10000),
+    )
 
-  agent = create_react_agent(llm, protected_tools)
+    print("=== agsec + LangChain ===\n")
+    print(f"Protected {len(protected_tools)} tools:\n")
+    for t in protected_tools:
+        print(f"  {t.name}: {t.description}")
 
-Install langchain-core to run this example:
-  pip install agsec[langchain] langchain-core
-""")
+    # --- Step 3: Test each tool ---
+
+    print("\n--- Testing tools ---\n")
+
+    # search: ALLOWED
+    try:
+        result = search.invoke({"query": "python docs"})
+        print(f"  search('python docs') -> {result}")
+    except Exception as e:
+        print(f"  search -> BLOCKED: {e}")
+
+    # delete_database: BLOCKED by agsec
+    print()
+    from agsec.exceptions import PolicyViolationError
+
+    try:
+        # Use the protected version
+        result = protected_tools[3].invoke({"table": "users"})
+        print(f"  delete_database('users') -> {result}")
+    except PolicyViolationError as e:
+        print(f"  delete_database('users') -> BLOCKED: {e}")
+
+    # process_payment small: ALLOWED
+    try:
+        result = protected_tools[4].invoke({"amount": 50.0, "recipient": "Bob"})
+        print(f"  process_payment($50) -> {result}")
+    except PolicyViolationError as e:
+        print(f"  process_payment($50) -> BLOCKED: {e}")
+
+    # process_payment large: BLOCKED
+    try:
+        result = protected_tools[4].invoke({"amount": 50000.0, "recipient": "Bob"})
+        print(f"  process_payment($50000) -> {result}")
+    except PolicyViolationError as e:
+        print(f"  process_payment($50000) -> BLOCKED: {e}")
+
+    # --- Step 4: Use with an agent (uncomment if you have langchain-openai) ---
+
+    # from langchain_openai import ChatOpenAI
+    # from langgraph.prebuilt import create_react_agent
+    #
+    # llm = ChatOpenAI(model="gpt-4o-mini")
+    # agent = create_react_agent(llm, protected_tools)
+    #
+    # result = agent.invoke({"messages": [{"role": "user", "content": "What's 42 * 17?"}]})
+    # print(result["messages"][-1].content)
+
+except ImportError:
+    print("Install langchain-core to run this example:")
+    print("  pip install agsec[langchain]")
