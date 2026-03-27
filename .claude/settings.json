@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Applications/Xcode.app/Contents/Developer/usr/bin/python3 -m agsec.cli.main check --format=claude-code --policy-dir /Users/riyandhiman/project/agsec/policies",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

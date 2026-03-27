@@ -1,0 +1,32 @@
+version: "1.0"
+
+statements:
+  # Block force push
+  - sid: "BlockForcePush"
+    effect: deny
+    actions: ["bash.execute"]
+    conditions:
+      params.command:
+        op: "regex"
+        value: "git\\s+push\\s+.*(-f|--force)"
+    reason: "Force push is blocked by policy"
+
+  # Block push to protected branches
+  - sid: "BlockPushProtected"
+    effect: deny
+    actions: ["bash.execute"]
+    conditions:
+      params.command:
+        op: "regex"
+        value: "git\\s+push\\s+.*\\s+(main|master|production|release)\\b"
+    reason: "Direct push to protected branches is blocked"
+
+  # Block destructive git operations
+  - sid: "BlockDestructiveGit"
+    effect: deny
+    actions: ["bash.execute"]
+    conditions:
+      params.command:
+        op: "regex"
+        value: "git\\s+(reset\\s+--hard|clean\\s+-[a-zA-Z]*f)"
+    reason: "Destructive git operation blocked"

@@ -1,0 +1,22 @@
+version: "1.0"
+
+statements:
+  # Review external web fetches
+  - sid: "ReviewExternalFetch"
+    effect: review
+    actions: ["web.fetch"]
+    conditions:
+      params.url:
+        op: "regex"
+        value: "^https?://(?!localhost|127\\.0\\.0\\.1|\\[::1\\])"
+    reason: "External web fetch requires review"
+
+  # Allow localhost fetches
+  - sid: "AllowLocalFetch"
+    effect: allow
+    actions: ["web.fetch"]
+
+  # Allow web search
+  - sid: "AllowWebSearch"
+    effect: allow
+    actions: ["web.search"]
