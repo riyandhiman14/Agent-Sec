@@ -23,7 +23,7 @@ AI Agent Action Firewall - A minimal, control layer for agent actions.
 - ✅ **YAML Policies**: Human-readable policy definitions
 - ✅ **Context Awareness**: Rules can access parameters and context
 - ✅ **Priority & Matching**: Advanced rule evaluation (priority, all/any matching)
-- ✅ **Audit Logging**: Built-in logging for all decisions
+- ✅ **Audit Logging**: Built-in persistent audit store for compliance
 - ✅ **Python Package**: Easy installation via PyPI
 
 ## Installation
@@ -61,6 +61,10 @@ def send_email(to, subject, body):
 # Execute with default allow policy
 result = control.execute("send_email", {"to": "user@example.com", "subject": "Hello", "body": "Hi!"})
 print(result.result)  # {"sent_to": "user@example.com", "status": "success"}
+
+# View audit logs
+executions = control.audit_store.get_executions()
+print(f"Total executions: {len(executions)}")
 ```
 
 ### With YAML Policies
@@ -123,11 +127,20 @@ Handles policy evaluation.
 - `load_rules_from_yaml_file(path)`: Load rules from YAML file
 - `evaluate(action, params, context=None)`: Evaluate policy for action
 
-### Policy Status
+### AuditStore
 
-- `PolicyStatus.ALLOW`: Allow action execution
-- `PolicyStatus.BLOCK`: Block action execution
-- `PolicyStatus.REVIEW`: Mark for manual review
+Persistent storage for execution logs and compliance.
+
+```python
+AuditStore(db_path="audit.db")  # File-based, or ":memory:" for in-memory
+```
+
+#### Methods
+
+- `log_execution(execution, context, error)`: Log an execution result
+- `get_executions(action, limit, offset)`: Query execution history
+- `get_execution_stats()`: Get summary statistics
+- `export_to_json(file_path)`: Export logs to JSON
 
 ### YAML Policy Schema
 

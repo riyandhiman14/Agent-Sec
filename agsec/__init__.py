@@ -1,3 +1,4 @@
+from .audit import AuditStore
 from .control import ControlLayer
 from .policy import PolicyEngine
 from .registry import ActionRegistry
@@ -9,4 +10,5 @@ __all__ = [
     "PolicyResult",
     "PolicyStatus",
     "ActionRegistry",
+    "AuditStore",
 ]

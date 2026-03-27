@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Optional
 
+from .audit import AuditStore
 from .exceptions import ActionNotFoundError, PolicyViolationError
 from .policy import PolicyEngine
 from .registry import ActionRegistry
@@ -17,6 +18,7 @@ class ControlLayer:
         logger: Optional[logging.Logger] = None,
         policy_yaml: Optional[str] = None,
         policy_yaml_path: Optional[str] = None,
+        audit_store: Optional[AuditStore] = None,
     ):
         self.policy_engine = policy_engine or PolicyEngine()
         if policy_yaml is not None:
@@ -25,6 +27,9 @@ class ControlLayer:
             self.policy_engine.load_rules_from_yaml_file(policy_yaml_path)
 
         self.action_registry = action_registry or ActionRegistry()
+        if audit_store is None:
+            audit_store = AuditStore()
+        self.audit_store = audit_store
         self.logger = logger or logging.getLogger("agsec")
         self.logger.setLevel(logging.DEBUG)
 
@@ -43,11 +48,15 @@ class ControlLayer:
 
         if policy.status == PolicyStatus.BLOCK:
             self.logger.warning("Blocked action: %s, reason=%s", action, policy.reason)
+            exec_result = ActionExecutionResult(action=action, params=params, result=None, policy=policy)
+            self.audit_store.log_execution(exec_result, context)
             raise PolicyViolationError(policy.reason)
 
         if policy.status == PolicyStatus.REVIEW:
             self.logger.info("Action requires manual review: %s, reason=%s", action, policy.reason)
-            return ActionExecutionResult(action=action, params=params, result=None, policy=policy)
+            exec_result = ActionExecutionResult(action=action, params=params, result=None, policy=policy)
+            self.audit_store.log_execution(exec_result, context)
+            return exec_result
 
         if policy.status != PolicyStatus.ALLOW:
             raise PolicyViolationError(f"Unexpected policy status: {policy.status}")
@@ -56,10 +65,18 @@ class ControlLayer:
             act = self.action_registry.get(action)
         except ActionNotFoundError as exc:
             self.logger.error("Action not found: %s", action)
+            exec_result = ActionExecutionResult(action=action, params=params, result=None, policy=policy)
+            self.audit_store.log_execution(exec_result, context, str(exc))
             raise
 
-        result = act(**params)
-        exec_result = ActionExecutionResult(action=action, params=params, result=result, policy=policy)
-
-        self.logger.info("Executed action: %s, result=%s", action, result)
-        return exec_result
+        try:
+            result = act(**params)
+            exec_result = ActionExecutionResult(action=action, params=params, result=result, policy=policy)
+            self.audit_store.log_execution(exec_result, context)
+            self.logger.info("Executed action: %s, result=%s", action, result)
+            return exec_result
+        except Exception as e:
+            exec_result = ActionExecutionResult(action=action, params=params, result=None, policy=policy)
+            self.audit_store.log_execution(exec_result, context, str(e))
+            self.logger.error("Action execution failed: %s, error=%s", action, e)
+            raise
