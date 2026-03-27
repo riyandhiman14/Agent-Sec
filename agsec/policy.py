@@ -41,11 +41,28 @@ def _evaluate_condition(value: Any, condition: Any) -> bool:
     return value == condition
 
 
+def _resolve_condition_value(key: str, params: Dict[str, Any], context: Optional[Dict[str, Any]]) -> Any:
+    if key.startswith("params."):
+        return params.get(key.split(".", 1)[1])
+    if key.startswith("context."):
+        if context is None:
+            return None
+        return context.get(key.split(".", 1)[1])
+
+    if key in params:
+        return params[key]
+    if context and key in context:
+        return context[key]
+    return None
+
+
 def _build_rule_from_definition(definition: Dict[str, Any]) -> PolicyRule:
     action_name = definition.get("action")
     status = definition.get("status")
     reason = definition.get("reason", "")
     conditions = definition.get("conditions", {})
+    match_type = definition.get("match", "all")
+    priority = int(definition.get("priority", 0))
 
     if action_name is None or status is None:
         raise ValueError("Each policy rule must include 'action' and 'status'")
@@ -53,26 +70,44 @@ def _build_rule_from_definition(definition: Dict[str, Any]) -> PolicyRule:
     status_enum = PolicyStatus(status)
 
     def rule(action: str, params: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Optional[PolicyResult]:
-        if action != action_name:
+        if action_name != "*" and action != action_name:
             return None
 
-        for key, cond in (conditions or {}).items():
-            if key not in params:
+        if conditions:
+            hits = []
+            for key, cond in conditions.items():
+                value = _resolve_condition_value(key, params, context)
+                if value is None:
+                    hits.append(False)
+                    continue
+
+                result = _evaluate_condition(value, cond)
+                hits.append(bool(result))
+
+            if match_type == "all" and not all(hits):
                 return None
-            if not _evaluate_condition(params[key], cond):
+            if match_type == "any" and not any(hits):
                 return None
 
         return PolicyResult(status=status_enum, reason=reason)
 
+    setattr(rule, "priority", priority)
     return rule
 
 
 class PolicyEngine:
     def __init__(self, rules: Optional[List[PolicyRule]] = None):
         self.rules = rules or []
+        self._sort_rules()
 
     def add_rule(self, rule: PolicyRule) -> None:
+        if not hasattr(rule, "priority"):
+            setattr(rule, "priority", 0)
         self.rules.append(rule)
+        self._sort_rules()
+
+    def _sort_rules(self) -> None:
+        self.rules.sort(key=lambda r: getattr(r, "priority", 0), reverse=True)
 
     def load_rules_from_yaml(self, yaml_text: str) -> None:
         parsed = yaml.safe_load(yaml_text)

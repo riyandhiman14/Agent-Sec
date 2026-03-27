@@ -101,3 +101,90 @@ rules:
     result = control.execute("send_email", {"to": "x@example.com"})
     assert result.result == {"sent_to": "x@example.com"}
     assert result.policy.status == PolicyStatus.ALLOW
+
+
+def test_policy_engine_yaml_priority():
+    yaml_rules = """
+rules:
+  - action: payment
+    status: allow
+    priority: 0
+  - action: payment
+    status: block
+    reason: "Higher priority block"
+    priority: 100
+"""
+
+    engine = PolicyEngine()
+    engine.load_rules_from_yaml(yaml_rules)
+
+    control = ControlLayer(policy_engine=engine)
+
+    @control.register_action("payment")
+    def payment(amount):
+        return {"charged": amount}
+
+    try:
+        control.execute("payment", {"amount": 10})
+        assert False, "Expected PolicyViolationError due to higher priority block"
+    except PolicyViolationError as e:
+        assert "Higher priority block" in str(e)
+
+
+def test_policy_engine_yaml_match_any():
+    yaml_rules = """
+rules:
+  - action: data_export
+    status: block
+    match: any
+    conditions:
+      table:
+        op: "=="
+        value: "sensitive"
+      export_type:
+        op: "=="
+        value: "external"
+"""
+
+    engine = PolicyEngine()
+    engine.load_rules_from_yaml(yaml_rules)
+
+    control = ControlLayer(policy_engine=engine)
+
+    @control.register_action("data_export")
+    def data_export(table, export_type):
+        return {"ok": True}
+
+    # should block on table match
+    try:
+        control.execute("data_export", {"table": "sensitive", "export_type": "internal"})
+        assert False
+    except PolicyViolationError:
+        pass
+
+
+def test_policy_engine_yaml_context_condition():
+    yaml_rules = """
+rules:
+  - action: password_reset
+    status: block
+    conditions:
+      context.user_role:
+        op: "=="
+        value: "guest"
+"""
+
+    engine = PolicyEngine()
+    engine.load_rules_from_yaml(yaml_rules)
+
+    control = ControlLayer(policy_engine=engine)
+
+    @control.register_action("password_reset")
+    def password_reset(user_id):
+        return {"reset": user_id}
+
+    try:
+        control.execute("password_reset", {"user_id": "u1"}, context={"user_role": "guest"})
+        assert False
+    except PolicyViolationError:
+        pass
