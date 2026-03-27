@@ -37,7 +37,7 @@ def run(args):
 
 def _install_claude_code(project_dir: str):
     claude_dir = os.path.join(project_dir, ".claude")
-    os.makedirs(claude_dir, exist_ok=True)
+    os.makedirs(claude_dir, mode=0o700, exist_ok=True)
 
     settings_path = os.path.join(claude_dir, "settings.json")
     agsec_cmd = _find_agsec_bin()
@@ -90,7 +90,8 @@ def _install_claude_code(project_dir: str):
 
     pre_tool_hooks.append(new_hook)
 
-    with open(settings_path, "w") as f:
+    fd = os.open(settings_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
         json.dump(settings, f, indent=2)
 
     print("agsec hook installed for Claude Code.")
@@ -103,7 +104,7 @@ def _install_claude_code(project_dir: str):
 def _install_codex(project_dir: str):
     # Codex uses ~/.codex/ or project-level config
     codex_dir = os.path.join(project_dir, ".codex")
-    os.makedirs(codex_dir, exist_ok=True)
+    os.makedirs(codex_dir, mode=0o700, exist_ok=True)
 
     hooks_path = os.path.join(codex_dir, "hooks.json")
     agsec_cmd = _find_agsec_bin()
@@ -133,7 +134,8 @@ def _install_codex(project_dir: str):
             except json.JSONDecodeError:
                 pass
 
-    with open(hooks_path, "w") as f:
+    fd = os.open(hooks_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
         json.dump(hooks_config, f, indent=2)
 
     print("agsec hook installed for Codex.")

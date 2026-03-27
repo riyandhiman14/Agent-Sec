@@ -39,6 +39,19 @@ class ControlLayer:
         self._before_hooks: List[Callable] = []
         self._after_hooks: List[Callable] = []
 
+    # -- Cleanup --
+
+    def close(self) -> None:
+        """Close the audit store connection."""
+        if self.audit_store:
+            self.audit_store.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
     # -- Action registration --
 
     def register_action(self, name: str):

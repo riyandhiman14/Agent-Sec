@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import os
 
+import yaml
+
+CONFIG_FILENAME = ".agsec.yaml"
+
 
 def find_policy_dir(start_dir: str | None = None) -> str:
     """Find the policies directory by walking up from start_dir.
@@ -47,3 +51,61 @@ def get_audit_db_path() -> str:
 def get_templates_dir() -> str:
     """Return path to bundled policy templates."""
     return os.path.join(os.path.dirname(os.path.dirname(__file__)), "templates", "policies")
+
+
+def find_config_path(start_dir: str | None = None) -> str | None:
+    """Find .agsec.yaml config file by walking up from start_dir."""
+    env_mode = os.environ.get("AGSEC_MODE")
+    if env_mode:
+        return None  # env var overrides file
+
+    start = os.path.abspath(start_dir or os.getcwd())
+    current = start
+    for _ in range(20):
+        path = os.path.join(current, CONFIG_FILENAME)
+        if os.path.isfile(path):
+            return path
+        parent = os.path.dirname(current)
+        if parent == current:
+            break
+        current = parent
+    return None
+
+
+def load_mode(start_dir: str | None = None) -> str:
+    """Return 'observe' or 'enforce'. Default: 'enforce'."""
+    # Env var takes priority
+    env_mode = os.environ.get("AGSEC_MODE")
+    if env_mode in ("observe", "enforce"):
+        return env_mode
+
+    config_path = find_config_path(start_dir)
+    if config_path:
+        try:
+            with open(config_path, "r") as f:
+                doc = yaml.safe_load(f) or {}
+            return doc.get("mode", "enforce")
+        except Exception:
+            pass
+    return "enforce"
+
+
+def set_mode(mode: str, start_dir: str | None = None) -> str:
+    """Write mode to .agsec.yaml. Returns path of config file."""
+    config_path = find_config_path(start_dir)
+    if config_path:
+        try:
+            with open(config_path, "r") as f:
+                doc = yaml.safe_load(f) or {}
+        except Exception:
+            doc = {}
+        doc["mode"] = mode
+        with open(config_path, "w") as f:
+            yaml.dump(doc, f, default_flow_style=False, sort_keys=False)
+        return config_path
+
+    # No config file found — create one in cwd
+    config_path = os.path.join(os.getcwd(), CONFIG_FILENAME)
+    with open(config_path, "w") as f:
+        yaml.dump({"mode": mode}, f, default_flow_style=False, sort_keys=False)
+    return config_path

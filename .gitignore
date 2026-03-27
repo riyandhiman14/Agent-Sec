@@ -28,6 +28,6 @@ mcp-servers/
 .env
 .mcp.json
 
-
 #docs
-*.md
+*.txt
+lp.html

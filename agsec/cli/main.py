@@ -13,7 +13,7 @@ def main():
     )
     subparsers = parser.add_subparsers(dest="command")
 
-    from .commands import audit, check, init, install, policy, validate
+    from .commands import audit, check, init, install, mode, policy, validate
 
     init.register(subparsers)
     check.register(subparsers)
@@ -21,6 +21,8 @@ def main():
     install.register(subparsers)
     policy.register(subparsers)
     audit.register(subparsers)
+    mode.register_observe(subparsers)
+    mode.register_enforce(subparsers)
 
     args = parser.parse_args()
     if not args.command:
