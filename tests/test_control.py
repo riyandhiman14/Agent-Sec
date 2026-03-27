@@ -54,3 +54,50 @@ def test_policy_review():
     result = control.execute("payment", {"amount": 6000})
     assert result.result is None
     assert result.policy.status == PolicyStatus.REVIEW
+
+
+def test_policy_engine_load_yaml_block():
+    yaml_rules = """
+rules:
+  - action: payment
+    status: block
+    reason: "Amount over limit"
+    conditions:
+      amount:
+        op: ">"
+        value: 10000
+"""
+
+    engine = PolicyEngine()
+    engine.load_rules_from_yaml(yaml_rules)
+
+    control = ControlLayer(policy_engine=engine)
+
+    @control.register_action("payment")
+    def payment(amount):
+        return {"charged": amount}
+
+    try:
+        control.execute("payment", {"amount": 15000})
+        assert False, "Expected PolicyViolationError"
+    except PolicyViolationError as e:
+        assert "Amount over limit" in str(e)
+
+
+def test_control_layer_load_policy_yaml_direct():
+    yaml_rules = """
+rules:
+  - action: send_email
+    status: allow
+    reason: "always allow"
+"""
+
+    control = ControlLayer(policy_yaml=yaml_rules)
+
+    @control.register_action("send_email")
+    def send_email(to):
+        return {"sent_to": to}
+
+    result = control.execute("send_email", {"to": "x@example.com"})
+    assert result.result == {"sent_to": "x@example.com"}
+    assert result.policy.status == PolicyStatus.ALLOW

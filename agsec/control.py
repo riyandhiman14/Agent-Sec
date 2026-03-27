@@ -15,8 +15,15 @@ class ControlLayer:
         policy_engine: Optional[PolicyEngine] = None,
         action_registry: Optional[ActionRegistry] = None,
         logger: Optional[logging.Logger] = None,
+        policy_yaml: Optional[str] = None,
+        policy_yaml_path: Optional[str] = None,
     ):
         self.policy_engine = policy_engine or PolicyEngine()
+        if policy_yaml is not None:
+            self.policy_engine.load_rules_from_yaml(policy_yaml)
+        elif policy_yaml_path is not None:
+            self.policy_engine.load_rules_from_yaml_file(policy_yaml_path)
+
         self.action_registry = action_registry or ActionRegistry()
         self.logger = logger or logging.getLogger("agsec")
         self.logger.setLevel(logging.DEBUG)

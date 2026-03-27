@@ -23,3 +23,43 @@ control.policy_engine.add_rule(lambda action, params, ctx: ("block" if action ==
 result = control.execute("send_email", {"to":"x@example.com", "subject":"hi", "body":"hello"})
 print(result)
 ```
+
+### YAML Policy Example
+
+```yaml
+rules:
+  - action: payment
+    status: block
+    reason: "High-value payment blocked"
+    conditions:
+      amount:
+        op: ">"
+        value: 10000
+```
+
+```python
+from agsec import ControlLayer
+
+policy_yaml = """
+rules:
+  - action: payment
+    status: block
+    reason: "High-value payment blocked"
+    conditions:
+      amount:
+        op: ">"
+        value: 10000
+"""
+
+control = ControlLayer(policy_yaml=policy_yaml)
+
+@control.register_action("payment")
+def payment(amount):
+    return {"charged": amount}
+
+try:
+    control.execute("payment", {"amount": 15000})
+except Exception as e:
+    print(e)
+```
+
