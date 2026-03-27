@@ -33,84 +33,15 @@ from pydantic import BaseModel
 
 from ..exceptions import PolicyViolationError
 from ..policy import PolicyEngine
-from ..policy.statement import Statement
-from ..types import PolicyResult, PolicyStatus
-from ._base import PolicyChecker
-from .conditions import Condition, param  # noqa: F401 — re-export for users
-
-
-# ---------------------------------------------------------------------------
-# Effect helpers
-# ---------------------------------------------------------------------------
-
-
-class ToolRule:
-    """One or more tools with an effect and optional conditions."""
-
-    def __init__(self, *tools: BaseTool, effect: str):
-        self.tools: tuple[BaseTool, ...] = tools
-        self.effect: str = effect
-        self.conditions: list[Condition] = []
-
-    def when(self, *conditions: Condition) -> ToolRule:
-        """Add conditions to this rule. Returns self for chaining."""
-        self.conditions.extend(conditions)
-        return self
-
-
-def allow(*tools: BaseTool) -> ToolRule:
-    """Mark tools as allowed."""
-    return ToolRule(*tools, effect="allow")
-
-
-def deny(*tools: BaseTool) -> ToolRule:
-    """Mark tools as denied (blocked)."""
-    return ToolRule(*tools, effect="deny")
-
-
-def review(*tools: BaseTool) -> ToolRule:
-    """Mark tools as requiring human review."""
-    return ToolRule(*tools, effect="review")
-
-
-# ---------------------------------------------------------------------------
-# Compile rules → PolicyEngine statements
-# ---------------------------------------------------------------------------
-
-_EFFECT_TO_STATUS = {
-    "allow": PolicyStatus.ALLOW,
-    "deny": PolicyStatus.BLOCK,
-    "review": PolicyStatus.REVIEW,
-}
-
-
-def _compile_rules(rules: list[ToolRule]) -> list[Statement]:
-    """Convert ToolRules into PolicyEngine Statement objects."""
-    statements = []
-    for rule in rules:
-        effect = _EFFECT_TO_STATUS[rule.effect]
-        tool_names = [f"tool.{t.name}" for t in rule.tools]
-
-        # Merge conditions
-        conditions = {}
-        for cond in rule.conditions:
-            conditions.update(cond.to_dict())
-
-        sid_parts = [rule.effect.title()]
-        if len(rule.tools) == 1:
-            sid_parts.append(rule.tools[0].name.title())
-        else:
-            sid_parts.append(f"{len(rule.tools)}Tools")
-
-        statements.append(Statement(
-            sid="_".join(sid_parts),
-            effect=effect,
-            actions=tool_names,
-            conditions=conditions,
-            reason=f"{rule.effect} by inline policy",
-        ))
-
-    return statements
+from ..types import PolicyStatus
+from .conditions import (  # noqa: F401 — re-export for users
+    ToolRule,
+    allow,
+    compile_rules,
+    deny,
+    param,
+    review,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -198,27 +129,17 @@ def guard(
             deny(delete_record),
             deny(payment).when(param("amount") > 10000),
         )
-
-    Args:
-        *args: BaseTool instances or ToolRule objects
-        agent: Agent name for agent-specific policy overlay
-        policy_dir: YAML policy directory (overrides inline rules for deny)
-        audit: Enable audit logging
-
-    Returns:
-        List of wrapped BaseTool instances
     """
-    # 1. Collect all tools and rules
     rules: list[ToolRule] = []
-    all_tools: dict[str, BaseTool] = {}  # name → tool (dedup)
+    all_tools: dict[str, BaseTool] = {}
 
     for arg in args:
         if isinstance(arg, ToolRule):
             rules.append(arg)
-            for tool in arg.tools:
-                all_tools[tool.name] = tool
+            for item in arg.names:
+                if isinstance(item, BaseTool):
+                    all_tools[item.name] = item
         elif isinstance(arg, BaseTool):
-            # Bare tool = allow
             rules.append(ToolRule(arg, effect="allow"))
             all_tools[arg.name] = arg
         else:
@@ -227,22 +148,19 @@ def guard(
                 f"got {type(arg).__name__}"
             )
 
-    # 2. Build PolicyEngine with inline statements
+    # Build engine
     engine = PolicyEngine(default="deny")
-    engine._iam_loaded = True  # enable IAM evaluation mode
+    engine._iam_loaded = True
 
-    statements = _compile_rules(rules)
-    for stmt in statements:
+    for stmt in compile_rules(rules):
         engine.add_statement(stmt)
 
-    # 3. Load YAML policies if provided (deny from YAML overrides inline allow)
     if policy_dir:
         try:
             engine.load_from_directory(policy_dir)
         except (ValueError, FileNotFoundError):
             pass
 
-    # 4. Load agent overlay if specified
     if agent:
         from ._base import _get_agent_policy_dir
         agent_dir = _get_agent_policy_dir(agent)
@@ -252,7 +170,6 @@ def guard(
             except (ValueError, FileNotFoundError):
                 pass
 
-    # 5. Wrap each tool
     return [
         GuardedTool(wrapped_tool=tool, engine=engine)
         for tool in all_tools.values()
