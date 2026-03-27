@@ -123,9 +123,15 @@ class TestWebPolicies:
 
 
 class TestDefaultDeny:
-    def test_unknown_action_blocked(self, engine):
+    def test_unknown_action_allowed(self, engine):
+        """Unknown tools are allowed by default (fail-open for unrecognized tools)."""
         result = engine.evaluate("unknown.something", {"foo": "bar"})
-        assert result.status == PolicyStatus.BLOCK
+        assert result.status == PolicyStatus.ALLOW
+
+    def test_internal_tools_allowed(self, engine):
+        """IDE/internal tools are always allowed."""
+        result = engine.evaluate("internal.TaskCreate", {})
+        assert result.status == PolicyStatus.ALLOW
 
     def test_mcp_tool_blocked_by_default(self, engine):
         result = engine.evaluate("mcp.slack.send_message", {"text": "hi"})
