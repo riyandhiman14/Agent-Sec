@@ -1,42 +1,58 @@
 """
-agsec + Claude Code — setup firewall in 30 seconds.
+Claude Code + agsec setup — run this script to set everything up.
 
-Run this script or use the CLI commands below.
+Run: pip install agsec
+     python examples/claude_code_setup.py
 """
 
+import os
 import subprocess
 import sys
 
-print("""
-=== agsec Claude Code Setup ===
 
-Three commands to protect your agent:
+def main():
+    print("=== agsec + Claude Code Setup ===\n")
 
-  1. pip install agsec
-  2. agsec init
-  3. agsec install claude-code
+    # Step 1: Check if policies exist
+    has_policies = os.path.isdir("policies") or os.path.isdir(".agsec/policies")
 
-That's it. The firewall is active.
+    if not has_policies:
+        print("1. Creating policies...")
+        result = subprocess.run(
+            [sys.executable, "-m", "agsec", "init"],
+            capture_output=True, text=True,
+        )
+        print(f"   {result.stdout.strip().split(chr(10))[0]}")
+    else:
+        print("1. Policies already exist.")
 
---- What gets blocked by default ---
+    # Step 2: Install hook
+    print("\n2. Installing Claude Code hook...")
+    result = subprocess.run(
+        [sys.executable, "-m", "agsec", "install", "claude-code"],
+        capture_output=True, text=True,
+    )
+    print(f"   {result.stdout.strip().split(chr(10))[0]}")
 
-  rm -rf /                    BLOCKED (file deletion)
-  cat .env                    BLOCKED (secret access)
-  git push --force            BLOCKED (force push)
-  git push origin main        BLOCKED (protected branch)
-  curl --data secrets.json    BLOCKED (data exfiltration)
+    # Step 3: Show current policies
+    print("\n3. Active policies:")
+    result = subprocess.run(
+        [sys.executable, "-m", "agsec", "policy", "list"],
+        capture_output=True, text=True,
+    )
+    for line in result.stdout.strip().split("\n"):
+        print(f"   {line}")
 
---- What gets allowed ---
+    # Step 4: Validate
+    print("\n4. Validating...")
+    result = subprocess.run(
+        [sys.executable, "-m", "agsec", "validate"],
+        capture_output=True, text=True,
+    )
+    print(f"   {result.stdout.strip()}")
 
-  ls, grep, find              ALLOWED (read ops)
-  python -m pytest            ALLOWED (safe bash)
-  git push origin feature/x   ALLOWED (feature branch)
+    print("\n=== Done. Restart Claude Code to activate the firewall. ===")
 
---- Manage policies ---
 
-  agsec policy list           # see all rules
-  agsec policy add            # add a rule (interactive)
-  agsec policy remove <sid>   # remove a rule
-  agsec validate              # check for errors
-  agsec audit --stats         # view activity
-""")
+if __name__ == "__main__":
+    main()
