@@ -2,6 +2,12 @@ version: "1.0"
 default: deny
 
 statements:
+  # Allow all IDE/internal tools — these are safe platform internals
+  - sid: "AllowInternalTools"
+    effect: allow
+    actions:
+      - "internal.*"
+
   # Allow all read/search operations — low risk
   - sid: "AllowReadOps"
     effect: allow
@@ -15,3 +21,10 @@ statements:
     effect: allow
     actions:
       - "agent.spawn"
+
+  # Allow unknown tools by default (fail-open for unrecognized tools)
+  # Remove this statement for strict mode
+  - sid: "AllowUnknownTools"
+    effect: allow
+    actions:
+      - "unknown.*"

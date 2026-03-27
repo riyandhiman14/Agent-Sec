@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, Tuple
 
 TOOL_ACTION_MAP = {
+    # Real-world actions (these need policy enforcement)
     "Bash": "bash.execute",
     "Edit": "file.edit",
     "Write": "file.write",
@@ -15,6 +16,18 @@ TOOL_ACTION_MAP = {
     "Grep": "file.grep",
     "Agent": "agent.spawn",
     "NotebookEdit": "notebook.edit",
+}
+
+# IDE/internal tools — safe, should never be blocked
+INTERNAL_TOOLS = {
+    "TaskCreate", "TaskUpdate", "TaskGet", "TaskList", "TaskOutput", "TaskStop",
+    "ToolSearch", "LSP", "Skill",
+    "EnterPlanMode", "ExitPlanMode",
+    "EnterWorktree", "ExitWorktree",
+    "AskUserQuestion",
+    "CronCreate", "CronDelete", "CronList",
+    "RemoteTrigger",
+    "SendMessage",
 }
 
 
@@ -33,6 +46,10 @@ def map_tool_to_action(tool_name: str, tool_input: Dict[str, Any]) -> Tuple[str,
         parts = tool_name.split("__")
         action = "mcp." + ".".join(parts[1:])
         return action, dict(tool_input)
+
+    # Internal/IDE tools — always safe, map to internal.*
+    if tool_name in INTERNAL_TOOLS:
+        return f"internal.{tool_name}", dict(tool_input)
 
     action = TOOL_ACTION_MAP.get(tool_name, f"unknown.{tool_name}")
     return action, dict(tool_input)
