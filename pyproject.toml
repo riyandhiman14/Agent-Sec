@@ -23,9 +23,9 @@ dependencies = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/yourusername/agsec"
-"Repository" = "https://github.com/yourusername/agsec"
-"Documentation" = "https://github.com/yourusername/agsec#readme"
+"Homepage" = "https://github.com/riyandhiman14/Agent-Sec"
+"Repository" = "https://github.com/riyandhiman14/Agent-Sec"
+"Documentation" = "https://github.com/riyandhiman14/Agent-Sec#readme"
 
 [tool.pytest.ini_options]
 minversion = "6.0"

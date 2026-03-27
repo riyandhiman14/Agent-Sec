@@ -11,7 +11,7 @@ setup(
     description="AI Agent Action Firewall core SDK",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/yourusername/agsec",
+    url="https://github.com/riyandhiman14/Agent-Sec",
     packages=find_packages(),
     classifiers=[
         "Programming Language :: Python :: 3",
