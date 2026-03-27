@@ -170,9 +170,18 @@ python -m build
 
 ### Releasing
 
+1. Update version in `pyproject.toml` and `setup.py`
+2. Commit changes: `git commit -m "Bump version to v0.2.0"`
+3. Tag release: `git tag v0.2.0`
+4. Push tag: `git push origin v0.2.0`
+5. GitHub Actions will automatically build and publish to PyPI
+
+Or use the local script:
 ```bash
-./release.sh  # Requires PYPI_API_TOKEN env var
+export PYPI_API_TOKEN="your-token"
+./release.sh
 ```
+
 
 ## Contributing
 
