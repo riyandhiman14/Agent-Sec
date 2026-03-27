@@ -1,0 +1,21 @@
+version: "1.0"
+
+statements:
+  # Admins can do anything
+  - sid: "AdminFullAccess"
+    effect: allow
+    actions: ["*"]
+    conditions:
+      context.user_role:
+        op: "=="
+        value: "admin"
+
+  # Block destructive operations for everyone else
+  - sid: "DenyDestructiveOps"
+    effect: deny
+    actions:
+      - "*.delete"
+      - "*.drop"
+      - "*.destroy"
+      - "db.truncate"
+    reason: "Destructive operations require admin role"

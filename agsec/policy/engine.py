@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import glob
 import os
 from typing import Any, Dict, List, Optional
 
@@ -95,6 +96,58 @@ class PolicyEngine:
         with open(path, "r", encoding="utf-8") as f:
             text = f.read()
         self.load_rules_from_yaml(text)
+
+    def load_from_file(self, path: str) -> None:
+        """Load a single policy YAML file. Merges into existing statements."""
+        path = os.path.abspath(path)
+        if not os.path.isfile(path):
+            raise FileNotFoundError(f"Policy file not found: {path}")
+
+        with open(path, "r", encoding="utf-8") as f:
+            text = f.read()
+
+        parsed = yaml.safe_load(text)
+        if not isinstance(parsed, dict):
+            raise ValueError(f"Policy file '{path}' must contain a YAML mapping")
+
+        policy_name = os.path.splitext(os.path.basename(path))[0]
+
+        if "statements" in parsed:
+            self._load_iam_format(parsed)
+            # Tag loaded statements with source file
+            for stmt in self._statements:
+                if not stmt.sid:
+                    stmt.sid = f"{policy_name}:{stmt.sid}" if stmt.sid else policy_name
+                stmt.source = path
+        elif "rules" in parsed:
+            self._load_legacy_format(parsed)
+        else:
+            raise ValueError(f"Policy file '{path}' must contain 'statements' or 'rules'")
+
+    def load_from_directory(self, directory: str) -> List[str]:
+        """Load all .yaml/.yml policy files from a directory. Returns list of loaded files.
+
+        Files are loaded in alphabetical order. Each file's statements are merged
+        into the engine. The first file's 'default' setting wins.
+        """
+        directory = os.path.abspath(directory)
+        if not os.path.isdir(directory):
+            raise FileNotFoundError(f"Policy directory not found: {directory}")
+
+        files = sorted(
+            glob.glob(os.path.join(directory, "*.yaml"))
+            + glob.glob(os.path.join(directory, "*.yml"))
+        )
+
+        if not files:
+            raise ValueError(f"No .yaml or .yml files found in: {directory}")
+
+        loaded = []
+        for path in files:
+            self.load_from_file(path)
+            loaded.append(path)
+
+        return loaded
 
     def _load_iam_format(self, parsed: Dict[str, Any]) -> None:
         """Parse IAM-style policy with statements."""
@@ -223,6 +276,39 @@ class PolicyEngine:
         return self.evaluate(action, params, context)
 
     # -- Validation --
+
+    def validate_file(self, path: str) -> List[str]:
+        """Validate a single policy YAML file. Returns list of issues."""
+        if not os.path.isfile(path):
+            return [f"File not found: {path}"]
+
+        with open(path, "r", encoding="utf-8") as f:
+            text = f.read()
+
+        issues = self.validate(text)
+        return [f"{os.path.basename(path)}: {i}" for i in issues]
+
+    def validate_directory(self, directory: str) -> Dict[str, List[str]]:
+        """Validate all policy files in a directory. Returns {filename: [issues]}."""
+        directory = os.path.abspath(directory)
+        if not os.path.isdir(directory):
+            return {"_error": [f"Directory not found: {directory}"]}
+
+        files = sorted(
+            glob.glob(os.path.join(directory, "*.yaml"))
+            + glob.glob(os.path.join(directory, "*.yml"))
+        )
+
+        results: Dict[str, List[str]] = {}
+        for path in files:
+            name = os.path.basename(path)
+            with open(path, "r", encoding="utf-8") as f:
+                text = f.read()
+            issues = self.validate(text)
+            if issues:
+                results[name] = issues
+
+        return results
 
     def validate(self, yaml_text: str) -> List[str]:
         """Validate a policy YAML without loading it. Returns list of issues (empty = valid)."""

@@ -1,15 +1,22 @@
 import asyncio
-import logging
-
 import json
+import os
+
 import pytest
 
 from agsec import AuditStore, ControlLayer, PolicyEngine, PolicyResult, PolicyStatus
 from agsec.exceptions import PolicyViolationError
 
 
+def _write_policy(tmp_path, filename, content):
+    """Helper to write a policy YAML file and return its path."""
+    path = tmp_path / filename
+    path.write_text(content)
+    return str(path)
+
+
 @pytest.mark.asyncio
-async def test_control_execute_allow(monkeypatch):
+async def test_control_execute_allow(tmp_path):
     control = ControlLayer(policy_engine=PolicyEngine())
 
     @control.register_action("noop")
@@ -22,7 +29,7 @@ async def test_control_execute_allow(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_control_execute_block():
+async def test_control_execute_block(tmp_path):
     engine = PolicyEngine()
 
     def deny_all(action, params, context):
@@ -40,7 +47,7 @@ async def test_control_execute_block():
 
 
 @pytest.mark.asyncio
-async def test_policy_review():
+async def test_policy_review(tmp_path):
     engine = PolicyEngine()
 
     def review_payment(action, params, context):
@@ -61,8 +68,8 @@ async def test_policy_review():
 
 
 @pytest.mark.asyncio
-async def test_policy_engine_load_yaml_block():
-    yaml_rules = """
+async def test_policy_engine_load_yaml_block(tmp_path):
+    path = _write_policy(tmp_path, "block.yaml", """
 rules:
   - action: payment
     status: block
@@ -71,10 +78,10 @@ rules:
       amount:
         op: ">"
         value: 10000
-"""
+""")
 
     engine = PolicyEngine()
-    engine.load_rules_from_yaml(yaml_rules)
+    engine.load_from_file(path)
 
     control = ControlLayer(policy_engine=engine)
 
@@ -88,15 +95,18 @@ rules:
 
 
 @pytest.mark.asyncio
-async def test_control_layer_load_policy_yaml_direct():
-    yaml_rules = """
-rules:
-  - action: send_email
-    status: allow
+async def test_control_layer_load_policy_file(tmp_path):
+    path = _write_policy(tmp_path, "allow_email.yaml", """
+version: "1.0"
+default: deny
+statements:
+  - sid: "AllowEmail"
+    effect: allow
+    actions: ["send_email"]
     reason: "always allow"
-"""
+""")
 
-    control = ControlLayer(policy_yaml=yaml_rules)
+    control = ControlLayer(policy_path=path)
 
     @control.register_action("send_email")
     def send_email(to):
@@ -108,8 +118,8 @@ rules:
 
 
 @pytest.mark.asyncio
-async def test_policy_engine_yaml_priority():
-    yaml_rules = """
+async def test_policy_engine_yaml_priority(tmp_path):
+    path = _write_policy(tmp_path, "priority.yaml", """
 rules:
   - action: payment
     status: allow
@@ -118,10 +128,10 @@ rules:
     status: block
     reason: "Higher priority block"
     priority: 100
-"""
+""")
 
     engine = PolicyEngine()
-    engine.load_rules_from_yaml(yaml_rules)
+    engine.load_from_file(path)
 
     control = ControlLayer(policy_engine=engine, audit_store=None)
 
@@ -135,8 +145,8 @@ rules:
 
 
 @pytest.mark.asyncio
-async def test_policy_engine_yaml_match_any():
-    yaml_rules = """
+async def test_policy_engine_yaml_match_any(tmp_path):
+    path = _write_policy(tmp_path, "match_any.yaml", """
 rules:
   - action: data_export
     status: block
@@ -148,10 +158,10 @@ rules:
       export_type:
         op: "=="
         value: "external"
-"""
+""")
 
     engine = PolicyEngine()
-    engine.load_rules_from_yaml(yaml_rules)
+    engine.load_from_file(path)
 
     control = ControlLayer(policy_engine=engine, audit_store=None)
 
@@ -165,8 +175,8 @@ rules:
 
 
 @pytest.mark.asyncio
-async def test_policy_engine_yaml_context_condition():
-    yaml_rules = """
+async def test_policy_engine_yaml_context_condition(tmp_path):
+    path = _write_policy(tmp_path, "context.yaml", """
 rules:
   - action: password_reset
     status: block
@@ -174,10 +184,10 @@ rules:
       context.user_role:
         op: "=="
         value: "guest"
-"""
+""")
 
     engine = PolicyEngine()
-    engine.load_rules_from_yaml(yaml_rules)
+    engine.load_from_file(path)
 
     control = ControlLayer(policy_engine=engine, audit_store=None)
 
@@ -233,7 +243,7 @@ async def test_audit_store_block_logging(tmp_path):
 async def test_audit_store_stats(tmp_path):
     db_path = str(tmp_path / "test_stats.db")
     audit = AuditStore(db_path)
-    
+
     # Allow action
     control = ControlLayer(audit_store=audit)
     @control.register_action("allow_action")
@@ -264,7 +274,6 @@ async def test_async_action_support():
 
     @control.register_action("async_send_email")
     async def async_send_email(to: str, subject: str):
-        # Simulate async operation
         await asyncio.sleep(0.01)
         return {"sent": True, "to": to, "subject": subject}
 
@@ -309,7 +318,7 @@ def test_execute_sync_wrapper():
 
 
 def test_exception_hierarchy():
-    """Test that new exception types inherit from AgsecError and have proper structure."""
+    """Test that exception types inherit from AgsecError and have proper structure."""
     from agsec.exceptions import (
         AgsecError,
         ConfigurationError,
@@ -324,12 +333,10 @@ def test_exception_hierarchy():
         RuntimeError,
     )
 
-    # Test base exception
     base_err = AgsecError("test message", "TEST_CODE", {"key": "value"})
     assert base_err.code == "TEST_CODE"
     assert base_err.details["key"] == "value"
 
-    # Test configuration error
     config_err = InvalidConfigError("/path/config.yaml", "invalid format", {"line": 10})
     assert config_err.code == "INVALID_CONFIG"
     assert config_err.details["config_path"] == "/path/config.yaml"
@@ -337,7 +344,6 @@ def test_exception_hierarchy():
     assert isinstance(config_err, ConfigurationError)
     assert isinstance(config_err, AgsecError)
 
-    # Test validation error
     param_err = ParameterValidationError("test_action", "amount", "invalid", "int", "not a number")
     assert param_err.code == "PARAMETER_VALIDATION_ERROR"
     assert param_err.details["action"] == "test_action"
@@ -345,14 +351,12 @@ def test_exception_hierarchy():
     assert param_err.details["expected"] == "int"
     assert isinstance(param_err, ValidationError)
 
-    # Test security error
     sec_err = SecurityViolationError("unauthorized_access", {"user": "hacker", "resource": "admin"})
     assert sec_err.code == "SECURITY_VIOLATION"
     assert sec_err.details["violation_type"] == "unauthorized_access"
     assert sec_err.details["user"] == "hacker"
     assert isinstance(sec_err, SecurityError)
 
-    # Test initialization error
     dep_err = DependencyError("requests", "2.25.0", "2.20.0")
     assert dep_err.code == "DEPENDENCY_ERROR"
     assert dep_err.details["dependency"] == "requests"
@@ -360,7 +364,6 @@ def test_exception_hierarchy():
     assert dep_err.details["version_found"] == "2.20.0"
     assert isinstance(dep_err, InitializationError)
 
-    # Test runtime error
     timeout_err = TimeoutError("policy_evaluation", 30.0)
     assert timeout_err.code == "TIMEOUT_ERROR"
     assert timeout_err.details["operation"] == "policy_evaluation"
