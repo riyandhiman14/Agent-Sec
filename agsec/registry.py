@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Dict
+import asyncio
+from typing import Any, Awaitable, Callable, Dict, Union
 
 from .exceptions import ActionNotFoundError
 
-ActionFunc = Callable[..., Any]
+ActionFunc = Union[Callable[..., Any], Callable[..., Awaitable[Any]]]
 
 
 class ActionRegistry:

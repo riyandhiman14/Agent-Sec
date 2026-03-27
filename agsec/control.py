@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Dict, Optional
 
-from .audit import AuditStore
 from .audit import AuditStore
 from .exceptions import ActionExecutionError, ActionNotFoundError, AuditError, PolicyViolationError
 from .policy import PolicyEngine
@@ -41,7 +41,7 @@ class ControlLayer:
 
         return decorator
 
-    def execute(self, action: str, params: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> ActionExecutionResult:
+    async def execute(self, action: str, params: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> ActionExecutionResult:
         context = context or {}
 
         try:
@@ -97,7 +97,15 @@ class ControlLayer:
             raise
 
         try:
-            result = act(**params)
+            # Check if the action is a coroutine function (async)
+            if asyncio.iscoroutinefunction(act):
+                result = await act(**params)
+            else:
+                # For sync functions, run them in a thread pool to avoid blocking
+                from functools import partial
+
+                callable_with_args = partial(act, **params)
+                result = await asyncio.get_event_loop().run_in_executor(None, callable_with_args)
             exec_result = ActionExecutionResult(action=action, params=params, result=result, policy=policy)
             try:
                 self.audit_store.log_execution(exec_result, context)
@@ -113,3 +121,18 @@ class ControlLayer:
             except Exception as audit_e:
                 self.logger.error("Audit logging failed: %s", audit_e)
             raise ActionExecutionError(action, e) from e
+
+    def execute_sync(self, action: str, params: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> ActionExecutionResult:
+        """Sync wrapper around async execute for compatibility with non-async code."""
+        try:
+            return asyncio.run(self.execute(action, params, context))
+        except RuntimeError as e:
+            # In case an event loop is already running (e.g. Jupyter), use nest_asyncio if available.
+            try:
+                import nest_asyncio
+
+                nest_asyncio.apply()
+                return asyncio.run(self.execute(action, params, context))
+            except Exception:
+                raise RuntimeError("execute_sync cannot run because an event loop is already active") from e
+
