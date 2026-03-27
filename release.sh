@@ -6,6 +6,6 @@ python3 -m pip install --upgrade build twine
 python3 -m build
 
 echo "Uploading to PyPI (requires PYPI_API_TOKEN in env)..."
-python3 -m twine upload dist/*
+python3 -m twine upload dist/* --verbose
 
 echo "Release complete."

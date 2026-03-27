@@ -168,21 +168,6 @@ pytest
 python -m build
 ```
 
-### Releasing
-
-1. Update version in `pyproject.toml` and `setup.py`
-2. Commit changes: `git commit -m "Bump version to v0.2.0"`
-3. Tag release: `git tag v0.2.0`
-4. Push tag: `git push origin v0.2.0`
-5. GitHub Actions will automatically build and publish to PyPI
-
-Or use the local script:
-```bash
-export PYPI_API_TOKEN="your-token"
-./release.sh
-```
-
-
 ## Contributing
 
 1. Fork the repository
@@ -199,16 +184,10 @@ export PYPI_API_TOKEN="your-token"
 - flake8 for linting
 - pytest for testing
 
-## License
-
-MIT License - see [LICENSE](LICENSE) file for details.
-
 ## Roadmap
 
-- [ ] Web dashboard for policy management
 - [ ] Advanced risk scoring
 - [ ] Multi-agent coordination
-- [ ] Enterprise integrations
 
 ## Support
 
