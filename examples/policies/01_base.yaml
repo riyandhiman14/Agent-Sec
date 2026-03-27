@@ -1,0 +1,21 @@
+version: "1.0"
+default: deny
+
+statements:
+  # Require authentication for all actions
+  - sid: "DenyUnauthenticated"
+    effect: deny
+    actions: ["*"]
+    conditions:
+      context.auth_token:
+        op: "not_exists"
+    reason: "Authentication required"
+
+  # Allow read operations for all authenticated users
+  - sid: "AllowReadOps"
+    effect: allow
+    actions:
+      - "db.read"
+      - "db.list"
+      - "cache.get"
+      - "cache.list"

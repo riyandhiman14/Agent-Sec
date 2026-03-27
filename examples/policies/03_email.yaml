@@ -1,0 +1,22 @@
+version: "1.0"
+
+statements:
+  # Only allow emails to company domains
+  - sid: "AllowInternalEmail"
+    effect: allow
+    actions: ["email.send"]
+    conditions:
+      params.to:
+        op: "regex"
+        value: ".*@(company\\.com|company\\.io)$"
+
+  # Block all other emails
+  - sid: "BlockExternalEmail"
+    effect: deny
+    actions: ["email.send"]
+    reason: "External emails require approval"
+
+  # Allow reading emails
+  - sid: "AllowEmailRead"
+    effect: allow
+    actions: ["email.read", "email.list"]
