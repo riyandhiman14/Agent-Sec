@@ -2,305 +2,363 @@
 
 [![PyPI version](https://badge.fury.io/py/agsec.svg)](https://pypi.org/project/agsec/)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-AI Agent Action Firewall - A minimal, control layer for agent actions.
+**An action firewall for AI agents.** Before an agent can do anything in the real world, it must pass through agsec.
 
-## Overview
+```
+Agent wants to act  -->  agsec evaluates policy  -->  allow / block / review  -->  real world
+```
 
-`agsec` provides a simple yet powerful way to add safety controls to AI agents. It acts as a "firewall" between agents and real-world actions, allowing you to define policies that approve, block, or review actions before execution.
+---
 
-### Why agsec?
+## The Problem
 
-- **Agent-neutral**: Works with any agent framework (LangChain, custom, etc.)
-- **Declarative policies**: Define rules in YAML or code
-- **Extensible**: Plugin system for custom actions and policies
-- **Production-ready**: Lightweight, fast, and secure
+AI agents interact with the real world — shell commands, file writes, API calls, payments. Each platform handles safety differently: some have permission prompts, some have sandboxes, some have nothing. But none offer:
 
-## Features
+- **Declarative, auditable policies** — like AWS IAM, but for agent actions
+- **Consistent rules across platforms** — same policies for Claude Code, Codex, or your custom agent
+- **Granular control** — not just "allow bash" or "block bash", but "block bash commands matching this pattern when this condition is true"
+- **Audit trail** — who did what, when, and what policy applied
 
-- ✅ **Action Registry**: Register and manage agent actions
-- ✅ **Policy Engine**: Flexible rule-based decision making
-- ✅ **YAML Policies**: Human-readable policy definitions
-- ✅ **Context Awareness**: Rules can access parameters and context
-- ✅ **Priority & Matching**: Advanced rule evaluation (priority, all/any matching)
-- ✅ **Audit Logging**: Built-in persistent audit store for compliance
-- ✅ **Async Support**: Full async/await support for modern agent stacks
-- ✅ **Python Package**: Easy installation via PyPI
+Built-in controls are binary (allow/block) and platform-specific. Teams running agents in production need policy-as-code with full visibility.
 
-## Installation
+## The Solution
 
-### Runtime (for users)
+agsec is an **IAM-style policy engine** for agent actions. Define what's allowed, what's blocked, and what needs human review — in YAML files, like AWS IAM policies.
+
+```yaml
+# policies/02_bash.yaml
+version: "1.0"
+default: deny
+
+statements:
+  - sid: "BlockFileDelete"
+    effect: deny
+    actions: ["bash.execute"]
+    conditions:
+      params.command:
+        op: "regex"
+        value: "\\brm\\s"
+    reason: "Agents should not delete files"
+
+  - sid: "AllowBash"
+    effect: allow
+    actions: ["bash.execute"]
+```
+
+**Deny always wins.** Just like IAM.
+
+---
+
+## Quick Start
+
+### Install
 
 ```bash
 pip install agsec
 ```
 
-### Development (for contributors)
+### 1. Initialize policies
+
+```bash
+agsec init
+```
+
+Creates a `policies/` directory with 5 default safety policies:
+
+```
+policies/
+  01_base.yaml       # Default deny, allow reads
+  02_bash.yaml       # Block rm, DROP TABLE, secret access
+  03_files.yaml      # Block writes to .env, system dirs
+  04_web.yaml        # Review external HTTP requests
+  05_git.yaml        # Block force push, protected branches
+```
+
+### 2. Hook into your agent
+
+```bash
+# Claude Code
+agsec install claude-code
+
+# OpenAI Codex
+agsec install codex
+```
+
+That's it. The firewall is active. Every tool call is checked against your policies.
+
+### 3. Manage policies
+
+```bash
+# List all active policies
+agsec policy list
+
+# Add a new policy interactively
+agsec policy add
+
+# Remove a policy
+agsec policy remove BlockFileDelete
+
+# Validate policy files
+agsec validate
+```
+
+### 4. View audit logs
+
+```bash
+# Recent actions
+agsec audit
+
+# Summary stats
+agsec audit --stats
+```
+
+---
+
+## How It Works
+
+### Runtime Enforcement
+
+agsec integrates at the **runtime level** of supported agent platforms. Every action the agent attempts — shell commands, file writes, web requests, API calls — is intercepted and evaluated against your policies *before* execution.
+
+The agent **cannot bypass** the firewall. Enforcement happens outside the agent's control.
+
+**Supported platforms:**
+- Claude Code
+- OpenAI Codex
+- Any agent via the Python SDK
+
+### IAM-Style Policy Evaluation
+
+Evaluation order (same as AWS IAM):
+
+1. **Explicit deny always wins** — if any deny rule matches, action is blocked
+2. **Review trumps allow** — if a review rule matches, action needs human approval
+3. **Explicit allow** — if an allow rule matches, action proceeds
+4. **Default policy** — if nothing matches, fall back to default (deny recommended)
+
+---
+
+## Policy Format
+
+Policies are YAML files in a `policies/` directory. All files are loaded and merged automatically.
+
+### Full Schema
+
+```yaml
+version: "1.0"
+default: deny          # deny | allow
+
+statements:
+  - sid: "UniqueId"    # Statement ID (for audit trail)
+    effect: deny       # deny | allow | review
+    actions:           # Glob patterns
+      - "bash.execute"
+      - "file.write"
+      - "payment.*"
+      - "*.delete"
+    conditions:        # Optional — when to apply
+      params.amount:
+        op: ">"
+        value: 10000
+      context.user_role:
+        op: "=="
+        value: "admin"
+    match: all         # all | any (condition logic)
+    reason: "Human-readable explanation"
+```
+
+### Action Names
+
+agsec uses a consistent naming scheme for actions:
+
+| Action | What It Covers |
+|---|---|
+| `bash.execute` | Shell commands |
+| `file.write` | File creation |
+| `file.edit` | File modification |
+| `file.read` | File reading |
+| `web.fetch` | HTTP requests |
+| `web.search` | Web searches |
+| `file.glob` | File pattern search |
+| `file.grep` | Content search |
+| `agent.spawn` | Sub-agent creation |
+| `mcp.*` | Any MCP tool calls |
+
+Use glob patterns in policies: `payment.*`, `*.delete`, `mcp.slack.*`
+
+### Condition Operators
+
+| Operator | Description | Example |
+|---|---|---|
+| `==` | Equals | `value: "admin"` |
+| `!=` | Not equals | `value: "guest"` |
+| `>` `<` `>=` `<=` | Comparison | `value: 10000` |
+| `in` | In list | `value: ["US", "UK"]` |
+| `not_in` | Not in list | `value: ["KP", "IR"]` |
+| `contains` | Substring match | `value: ".env"` |
+| `starts_with` | Prefix match | `value: "https://api."` |
+| `ends_with` | Suffix match | `value: ".com"` |
+| `regex` | Regex match | `value: "rm\\s+-rf"` |
+| `exists` | Field is present | *(no value needed)* |
+| `not_exists` | Field is absent | *(no value needed)* |
+
+### Deep Nested Access
+
+Access nested fields with dot notation:
+
+```yaml
+conditions:
+  params.recipient.country:
+    op: "in"
+    value: ["KP", "IR", "SY"]
+  context.request.headers.origin:
+    op: "ends_with"
+    value: ".internal.com"
+```
+
+---
+
+## SDK Usage (Programmatic)
+
+Use agsec directly in your Python code, without the CLI:
+
+```python
+from agsec import ControlLayer
+
+# Load policies from directory
+control = ControlLayer(policy_dir="./policies/")
+
+# Register actions
+@control.register_action("payment.charge")
+async def charge(amount, recipient):
+    return {"charged": amount, "to": recipient}
+
+# Execute with policy enforcement
+result = await control.execute(
+    "payment.charge",
+    {"amount": 500, "recipient": {"country": "US"}},
+    context={"user_role": "agent"}
+)
+print(result.policy.status)  # PolicyStatus.ALLOW
+print(result.result)         # {"charged": 500, "to": {"country": "US"}}
+```
+
+### Sync Usage
+
+```python
+result = control.execute_sync("payment.charge", {"amount": 500, ...})
+```
+
+### Dry Run (Check Without Executing)
+
+```python
+# Async
+policy = await control.dry_run("payment.charge", {"amount": 50000})
+print(policy.status)   # PolicyStatus.REVIEW
+print(policy.reason)   # "Large payments require review"
+
+# Sync
+policy = control.dry_run_sync("payment.charge", {"amount": 50000})
+```
+
+### Hooks (Before/After Execution)
+
+```python
+control = ControlLayer(policy_dir="./policies/")
+
+@control.before_hook
+def log_action(action, params, context):
+    print(f"About to execute: {action}")
+
+@control.after_hook
+def log_result(exec_result):
+    print(f"Result: {exec_result.result}")
+```
+
+### Policy Engine Direct Access
+
+```python
+from agsec.policy import PolicyEngine
+
+engine = PolicyEngine()
+engine.load_from_directory("./policies/")
+
+# Evaluate
+result = engine.evaluate("bash.execute", {"command": "rm -rf /"})
+print(result.status)              # PolicyStatus.BLOCK
+print(result.reason)              # "Agents should not delete files"
+print(result.metadata["sid"])     # "BlockFileDelete"
+print(result.metadata["matched_by"])  # "explicit_deny"
+
+# Validate policies without loading
+issues = engine.validate_directory("./policies/")
+```
+
+### Audit Store
+
+```python
+from agsec.audit import AuditStore
+
+audit = AuditStore("./audit.db")
+
+# Query logs
+executions = audit.get_executions(action="payment.charge", limit=50)
+
+# Get stats
+stats = audit.get_execution_stats()
+# {"total_executions": 142, "allowed": 100, "blocked": 30, "reviewed": 12, "errors": 0}
+
+# Export
+audit.export_to_json("audit_export.json")
+```
+
+---
+
+## CLI Reference
+
+| Command | Description |
+|---|---|
+| `agsec init` | Create `policies/` with default safety policies |
+| `agsec policy list` | List all active policy statements |
+| `agsec policy add` | Add a new policy (interactive) |
+| `agsec policy remove <sid>` | Remove a policy by statement ID |
+| `agsec validate [path]` | Validate policy files for errors |
+| `agsec install claude-code` | Activate firewall for Claude Code |
+| `agsec install codex` | Activate firewall for OpenAI Codex |
+| `agsec audit` | View recent audit logs |
+| `agsec audit --stats` | View summary statistics |
+
+---
+
+## Default Policies
+
+`agsec init` ships with these out of the box:
+
+**01_base.yaml** - Default deny. Allow read operations and agent spawning.
+
+**02_bash.yaml** - Block `rm` (all forms), `DROP TABLE`, `TRUNCATE`, secret access via `cat .env`, data exfiltration via `curl --data`. Allow other bash.
+
+**03_files.yaml** - Block writes to `.env`, `credentials.json`, `secrets.yaml`, `.ssh/`, `.aws/credentials`, system directories (`/etc/`, `/usr/`). Allow other writes.
+
+**04_web.yaml** - Review all external HTTP fetches. Allow localhost. Allow web search.
+
+**05_git.yaml** - Block `git push --force`, push to `main`/`master`/`production`, `git reset --hard`, `git clean -f`.
+
+---
+
+## Contributing
 
 ```bash
 git clone https://github.com/riyandhiman14/Agent-Sec.git
 cd agsec
-pip install -e .[dev]
-pre-commit install
-```
-
-## Quick Start
-
-### Basic Usage
-
-```python
-import asyncio
-from agsec import ControlLayer
-
-async def main():
-    # Create control layer
-    control = ControlLayer()
-
-    # Register an action (sync or async)
-    @control.register_action("send_email")
-    async def send_email(to, subject, body):
-        # Simulate async email sending
-        await asyncio.sleep(0.1)
-        return {"sent_to": to, "status": "success"}
-
-    # Execute with default allow policy
-    result = await control.execute("send_email", {"to": "user@example.com", "subject": "Hello", "body": "Hi!"})
-    print(result.result)  # {"sent_to": "user@example.com", "status": "success"}
-
-    # View audit logs
-    executions = control.audit_store.get_executions()
-    print(f"Total executions: {len(executions)}")
-
-asyncio.run(main())
-```
-
-### With YAML Policies
-
-```python
-import asyncio
-from agsec import ControlLayer
-
-async def main():
-    policy_yaml = """
-rules:
-  - action: payment
-    status: block
-    reason: "High-value payment blocked"
-    conditions:
-      amount:
-        op: ">"
-        value: 10000
-"""
-
-    control = ControlLayer(policy_yaml=policy_yaml)
-
-    @control.register_action("payment")
-    async def payment(amount):
-        await asyncio.sleep(0.1)  # Simulate async payment processing
-        return {"charged": amount}
-
-    try:
-        await control.execute("payment", {"amount": 15000})
-    except Exception as e:
-        print(e)  # PolicyViolationError: High-value payment blocked
-
-asyncio.run(main())
-```
-
-## API Reference
-
-### ControlLayer
-
-Main class for managing agent actions and policies.
-
-```python
-ControlLayer(
-    policy_engine=None,      # PolicyEngine instance
-    action_registry=None,    # ActionRegistry instance
-    logger=None,             # Custom logger
-    policy_yaml=None,        # YAML policy string
-    policy_yaml_path=None    # Path to YAML policy file
-)
-```
-
-#### Methods
-
-- `register_action(name)`: Decorator to register an action function (supports both sync and async functions)
-- `async execute(action, params, context=None)`: Execute an action with policy check (async)
-
-### PolicyEngine
-
-Handles policy evaluation.
-
-#### Methods
-
-- `add_rule(rule)`: Add a programmatic rule function
-- `load_rules_from_yaml(yaml_text)`: Load rules from YAML string
-- `load_rules_from_yaml_file(path)`: Load rules from YAML file
-- `evaluate(action, params, context=None)`: Evaluate policy for action
-
-### AuditStore
-
-Persistent storage for execution logs and compliance.
-
-```python
-AuditStore(db_path="audit.db")  # File-based, or ":memory:" for in-memory
-```
-
-#### Methods
-
-- `log_execution(execution, context, error)`: Log an execution result
-- `get_executions(action, limit, offset)`: Query execution history
-- `get_execution_stats()`: Get summary statistics
-- `export_to_json(file_path)`: Export logs to JSON
-
-### YAML Policy Schema
-
-```yaml
-rules:
-  - action: "action_name"          # Action to match (* for all)
-    status: "allow|block|review"   # Decision
-    reason: "Optional reason"      # Human-readable explanation
-    priority: 0                    # Higher = evaluated first
-    match: "all|any"               # Condition matching mode
-    conditions:                    # Parameter/context checks
-      param_name:
-        op: "==|!=|>|<|>=|<=|in|not_in"
-        value: "expected_value"
-      context.user_role:
-        op: "=="
-        value: "admin"
-```
-
-## Development
-
-### Setup
-
-```bash
-pip install -e .[dev]
-pre-commit install
-```
-
-### Testing
-
-```bash
+pip install -e ".[dev]"
 pytest
 ```
 
-### Building
+---
 
-```bash
-python -m build
-```
+## License
 
-## Error Handling
-
-agsec provides a comprehensive exception hierarchy for robust error handling in production environments. All exceptions inherit from `AgsecError` and include structured error codes and detailed context.
-
-### Exception Hierarchy
-
-```
-AgsecError (base)
-├── ConfigurationError
-│   ├── InvalidConfigError
-│   ├── MissingConfigError
-│   └── ConfigValidationError
-├── RegistryError
-│   ├── ActionNotFoundError
-│   ├── DuplicateActionError
-│   ├── InvalidActionError
-│   └── RegistryFullError
-├── PolicyError
-│   ├── PolicyParseError
-│   ├── InvalidPolicyError
-│   ├── PolicyConflictError
-│   ├── PolicyTimeoutError
-│   └── PolicyViolationError
-├── ActionExecutionError
-├── AuditError
-│   ├── AuditConnectionError
-│   ├── AuditIntegrityError
-│   └── AuditStorageError
-├── ValidationError
-│   ├── ParameterValidationError
-│   ├── TypeValidationError
-│   └── SchemaValidationError
-├── SecurityError
-│   ├── SecurityViolationError
-│   ├── TamperingError
-│   └── IntegrityError
-├── InitializationError
-│   ├── DependencyError
-│   └── EnvironmentError
-└── RuntimeError
-    ├── TimeoutError
-    ├── ResourceError
-    └── ConcurrencyError
-```
-
-### Error Handling Example
-
-```python
-from agsec import ControlLayer
-from agsec.exceptions import (
-    PolicyViolationError,
-    ActionExecutionError,
-    ConfigurationError
-)
-
-control = ControlLayer()
-
-try:
-    result = control.execute("payment", {"amount": 10000})
-except PolicyViolationError as e:
-    print(f"Policy blocked: {e.details['reason']}")
-    # Handle policy violation
-except ActionExecutionError as e:
-    print(f"Action failed: {e.details['original_error']}")
-    # Handle execution error
-except ConfigurationError as e:
-    print(f"Config error: {e.details}")
-    # Handle configuration issues
-```
-
-### Error Details
-
-All exceptions provide:
-- **Error code**: Machine-readable identifier (e.g., `"POLICY_VIOLATION"`)
-- **Structured details**: Context-specific information in `details` dict
-- **Descriptive message**: Human-readable error description
-
-Common error codes:
-- `ACTION_NOT_FOUND`: Action not registered
-- `POLICY_VIOLATION`: Policy blocked the action
-- `ACTION_EXECUTION_ERROR`: Action execution failed
-- `INVALID_CONFIG`: Configuration file invalid
-- `DEPENDENCY_ERROR`: Required dependency missing
-- `TIMEOUT_ERROR`: Operation timed out
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests
-5. Run `pre-commit run --all-files`
-6. Submit a pull request
-
-### Code Style
-
-- Black for formatting
-- isort for import sorting
-- flake8 for linting
-- pytest for testing
-
-## Roadmap
-
-- [ ] Advanced risk scoring
-- [ ] Multi-agent coordination
-
-## Support
-
-- Issues: [GitHub Issues](https://github.com/riyandhiman14/Agent-Sec/issues)
-- Discussions: [GitHub Discussions](https://github.com/riyandhiman14/Agent-Sec/discussions)
-
+Apache 2.0 — see [LICENSE](LICENSE) for details.
