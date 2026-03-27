@@ -1,0 +1,57 @@
+version: "1.0"
+
+statements:
+  # Block all file deletion commands
+  - sid: "BlockFileDelete"
+    effect: deny
+    actions: ["bash.execute"]
+    conditions:
+      params.command:
+        op: "regex"
+        value: "\\brm\\s"
+    reason: "File deletion (rm) is blocked — agents should not delete files"
+
+  # Block other destructive filesystem commands
+  - sid: "BlockDestructiveFS"
+    effect: deny
+    actions: ["bash.execute"]
+    conditions:
+      params.command:
+        op: "regex"
+        value: "(chmod\\s+777|mkfs\\.|dd\\s+if=|shred\\s|wipe\\s)"
+    reason: "Destructive filesystem command blocked"
+
+  # Block destructive database commands
+  - sid: "BlockDestructiveSQL"
+    effect: deny
+    actions: ["bash.execute"]
+    conditions:
+      params.command:
+        op: "regex"
+        value: "(?i)(DROP\\s+(TABLE|DATABASE)|TRUNCATE\\s+TABLE|DELETE\\s+FROM\\s+\\S+\\s*$)"
+    reason: "Destructive database command blocked"
+
+  # Block direct access to secrets via bash
+  - sid: "BlockSecretAccess"
+    effect: deny
+    actions: ["bash.execute"]
+    conditions:
+      params.command:
+        op: "regex"
+        value: "(cat|less|more|head|tail)\\s+.*(\\.env|credentials|secrets|password|private_key|id_rsa)"
+    reason: "Accessing secrets via bash is blocked"
+
+  # Block potential data exfiltration
+  - sid: "BlockDataExfiltration"
+    effect: deny
+    actions: ["bash.execute"]
+    conditions:
+      params.command:
+        op: "regex"
+        value: "(curl|wget|nc|ncat).*(-d|--data|--upload|-T).*(\\.env|credentials|secret|password|token)"
+    reason: "Potential data exfiltration blocked"
+
+  # Allow other bash commands
+  - sid: "AllowBash"
+    effect: allow
+    actions: ["bash.execute"]

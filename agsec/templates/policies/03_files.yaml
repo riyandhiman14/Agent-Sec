@@ -1,0 +1,32 @@
+version: "1.0"
+
+statements:
+  # Block writes to sensitive files
+  - sid: "BlockWriteSensitive"
+    effect: deny
+    actions: ["file.write", "file.edit"]
+    conditions:
+      params.file_path:
+        op: "regex"
+        value: "(\\.env$|\\.env\\..+|credentials\\.json|secrets\\.ya?ml|\\.ssh/|id_rsa|\\.aws/credentials|\\.gcloud/|service[_-]account.*\\.json)"
+    reason: "Writing to sensitive files is blocked"
+
+  # Block writes to system directories
+  - sid: "BlockWriteSystemDirs"
+    effect: deny
+    actions: ["file.write", "file.edit"]
+    conditions:
+      params.file_path:
+        op: "regex"
+        value: "^/(etc|usr|var|sys|proc|boot|root)/"
+    reason: "Writing to system directories is blocked"
+
+  # Allow other file writes
+  - sid: "AllowFileWrites"
+    effect: allow
+    actions: ["file.write", "file.edit"]
+
+  # Allow notebook edits
+  - sid: "AllowNotebook"
+    effect: allow
+    actions: ["notebook.edit"]

@@ -1,0 +1,17 @@
+version: "1.0"
+default: deny
+
+statements:
+  # Allow all read/search operations — low risk
+  - sid: "AllowReadOps"
+    effect: allow
+    actions:
+      - "file.read"
+      - "file.glob"
+      - "file.grep"
+
+  # Allow agent/sub-agent spawning
+  - sid: "AllowAgentSpawn"
+    effect: allow
+    actions:
+      - "agent.spawn"

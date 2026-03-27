@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agsec"
-version = "0.1.2"
+version = "0.1.3"
 description = "AI Agent Action Firewall core SDK"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -20,6 +20,9 @@ classifiers = [
 dependencies = [
   "PyYAML>=6.0"
 ]
+
+[project.scripts]
+agsec = "agsec.cli.main:main"
 
 [project.optional-dependencies]
 dev = [
