@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Dict, Optional
 
-from .audit import AuditStore
 from .audit import AuditStore
 from .exceptions import ActionExecutionError, ActionNotFoundError, AuditError, PolicyViolationError
 from .policy import PolicyEngine
@@ -41,7 +41,7 @@ class ControlLayer:
 
         return decorator
 
-    def execute(self, action: str, params: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> ActionExecutionResult:
+    async def execute(self, action: str, params: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> ActionExecutionResult:
         context = context or {}
 
         try:
@@ -97,7 +97,12 @@ class ControlLayer:
             raise
 
         try:
-            result = act(**params)
+            # Check if the action is a coroutine function (async)
+            if asyncio.iscoroutinefunction(act):
+                result = await act(**params)
+            else:
+                # For sync functions, run them in a thread pool to avoid blocking
+                result = await asyncio.get_event_loop().run_in_executor(None, act, **params)
             exec_result = ActionExecutionResult(action=action, params=params, result=result, policy=policy)
             try:
                 self.audit_store.log_execution(exec_result, context)

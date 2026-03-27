@@ -21,6 +21,16 @@ dependencies = [
   "PyYAML>=6.0"
 ]
 
+[project.optional-dependencies]
+dev = [
+  "pytest>=6.0",
+  "pytest-asyncio>=0.21.0",
+  "black>=22.0.0",
+  "isort>=5.10.0",
+  "flake8>=4.0.0",
+  "pre-commit>=2.17.0"
+]
+
 [project.urls]
 "Homepage" = "https://github.com/riyandhiman14/Agent-Sec"
 "Repository" = "https://github.com/riyandhiman14/Agent-Sec"

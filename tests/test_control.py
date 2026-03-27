@@ -1,24 +1,28 @@
+import asyncio
 import logging
 
 import json
+import pytest
 
 from agsec import AuditStore, ControlLayer, PolicyEngine, PolicyResult, PolicyStatus
 from agsec.exceptions import PolicyViolationError
 
 
-def test_control_execute_allow(monkeypatch):
+@pytest.mark.asyncio
+async def test_control_execute_allow(monkeypatch):
     control = ControlLayer(policy_engine=PolicyEngine())
 
     @control.register_action("noop")
     def noop():
         return "ok"
 
-    result = control.execute("noop", {})
+    result = await control.execute("noop", {})
     assert result.result == "ok"
     assert result.policy.status == PolicyStatus.ALLOW
 
 
-def test_control_execute_block():
+@pytest.mark.asyncio
+async def test_control_execute_block():
     engine = PolicyEngine()
 
     def deny_all(action, params, context):
@@ -31,14 +35,12 @@ def test_control_execute_block():
     def noop():
         return "ok"
 
-    try:
-        control.execute("noop", {})
-        assert False, "Expected PolicyViolationError"
-    except PolicyViolationError:
-        pass
+    with pytest.raises(PolicyViolationError):
+        await control.execute("noop", {})
 
 
-def test_policy_review():
+@pytest.mark.asyncio
+async def test_policy_review():
     engine = PolicyEngine()
 
     def review_payment(action, params, context):
@@ -53,12 +55,13 @@ def test_policy_review():
     def payment(amount):
         return {"charged": amount}
 
-    result = control.execute("payment", {"amount": 6000})
+    result = await control.execute("payment", {"amount": 6000})
     assert result.result is None
     assert result.policy.status == PolicyStatus.REVIEW
 
 
-def test_policy_engine_load_yaml_block():
+@pytest.mark.asyncio
+async def test_policy_engine_load_yaml_block():
     yaml_rules = """
 rules:
   - action: payment
@@ -79,14 +82,13 @@ rules:
     def payment(amount):
         return {"charged": amount}
 
-    try:
-        control.execute("payment", {"amount": 15000})
-        assert False, "Expected PolicyViolationError"
-    except PolicyViolationError as e:
-        assert "Amount over limit" in str(e)
+    with pytest.raises(PolicyViolationError) as exc_info:
+        await control.execute("payment", {"amount": 15000})
+    assert "Amount over limit" in str(exc_info.value)
 
 
-def test_control_layer_load_policy_yaml_direct():
+@pytest.mark.asyncio
+async def test_control_layer_load_policy_yaml_direct():
     yaml_rules = """
 rules:
   - action: send_email
@@ -100,12 +102,13 @@ rules:
     def send_email(to):
         return {"sent_to": to}
 
-    result = control.execute("send_email", {"to": "x@example.com"})
+    result = await control.execute("send_email", {"to": "x@example.com"})
     assert result.result == {"sent_to": "x@example.com"}
     assert result.policy.status == PolicyStatus.ALLOW
 
 
-def test_policy_engine_yaml_priority():
+@pytest.mark.asyncio
+async def test_policy_engine_yaml_priority():
     yaml_rules = """
 rules:
   - action: payment
@@ -126,14 +129,13 @@ rules:
     def payment(amount):
         return {"charged": amount}
 
-    try:
-        control.execute("payment", {"amount": 10})
-        assert False, "Expected PolicyViolationError due to higher priority block"
-    except PolicyViolationError as e:
-        assert "Higher priority block" in str(e)
+    with pytest.raises(PolicyViolationError) as exc_info:
+        await control.execute("payment", {"amount": 10})
+    assert "Higher priority block" in str(exc_info.value)
 
 
-def test_policy_engine_yaml_match_any():
+@pytest.mark.asyncio
+async def test_policy_engine_yaml_match_any():
     yaml_rules = """
 rules:
   - action: data_export
@@ -158,14 +160,12 @@ rules:
         return {"ok": True}
 
     # should block on table match
-    try:
-        control.execute("data_export", {"table": "sensitive", "export_type": "internal"})
-        assert False
-    except PolicyViolationError:
-        pass
+    with pytest.raises(PolicyViolationError):
+        await control.execute("data_export", {"table": "sensitive", "export_type": "internal"})
 
 
-def test_policy_engine_yaml_context_condition():
+@pytest.mark.asyncio
+async def test_policy_engine_yaml_context_condition():
     yaml_rules = """
 rules:
   - action: password_reset
@@ -185,14 +185,12 @@ rules:
     def password_reset(user_id):
         return {"reset": user_id}
 
-    try:
-        control.execute("password_reset", {"user_id": "u1"}, context={"user_role": "guest"})
-        assert False
-    except PolicyViolationError:
-        pass
+    with pytest.raises(PolicyViolationError):
+        await control.execute("password_reset", {"user_id": "u1"}, context={"user_role": "guest"})
 
 
-def test_audit_store_logging(tmp_path):
+@pytest.mark.asyncio
+async def test_audit_store_logging(tmp_path):
     db_path = str(tmp_path / "test.db")
     audit = AuditStore(db_path)
     control = ControlLayer(audit_store=audit)
@@ -201,7 +199,7 @@ def test_audit_store_logging(tmp_path):
     def test_action(value):
         return {"result": value * 2}
 
-    result = control.execute("test_action", {"value": 5})
+    result = await control.execute("test_action", {"value": 5})
     executions = audit.get_executions()
     assert len(executions) == 1
     assert executions[0]["action"] == "test_action"
@@ -209,7 +207,8 @@ def test_audit_store_logging(tmp_path):
     assert json.loads(executions[0]["result"]) == {"result": 10}
 
 
-def test_audit_store_block_logging(tmp_path):
+@pytest.mark.asyncio
+async def test_audit_store_block_logging(tmp_path):
     db_path = str(tmp_path / "test_block.db")
     audit = AuditStore(db_path)
     engine = PolicyEngine()
@@ -220,10 +219,8 @@ def test_audit_store_block_logging(tmp_path):
     def blocked_action():
         return "should not run"
 
-    try:
-        control.execute("blocked_action", {})
-    except PolicyViolationError:
-        pass
+    with pytest.raises(PolicyViolationError):
+        await control.execute("blocked_action", {})
 
     executions = audit.get_executions()
     assert len(executions) == 1
@@ -232,7 +229,8 @@ def test_audit_store_block_logging(tmp_path):
     assert executions[0]["result"] is None
 
 
-def test_audit_store_stats(tmp_path):
+@pytest.mark.asyncio
+async def test_audit_store_stats(tmp_path):
     db_path = str(tmp_path / "test_stats.db")
     audit = AuditStore(db_path)
     
@@ -241,7 +239,7 @@ def test_audit_store_stats(tmp_path):
     @control.register_action("allow_action")
     def allow_action():
         return "ok"
-    control.execute("allow_action", {})
+    await control.execute("allow_action", {})
 
     # Block action
     engine = PolicyEngine()
@@ -250,15 +248,43 @@ def test_audit_store_stats(tmp_path):
     @control_block.register_action("block_action")
     def block_action():
         return "blocked"
-    try:
-        control_block.execute("block_action", {})
-    except PolicyViolationError:
-        pass
+    with pytest.raises(PolicyViolationError):
+        await control_block.execute("block_action", {})
 
     stats = audit.get_execution_stats()
     assert stats["total_executions"] == 2
     assert stats["allowed"] == 1
     assert stats["blocked"] == 1
+
+
+@pytest.mark.asyncio
+async def test_async_action_support():
+    """Test that async actions work correctly."""
+    control = ControlLayer(policy_engine=PolicyEngine())
+
+    @control.register_action("async_send_email")
+    async def async_send_email(to: str, subject: str):
+        # Simulate async operation
+        await asyncio.sleep(0.01)
+        return {"sent": True, "to": to, "subject": subject}
+
+    result = await control.execute("async_send_email", {"to": "user@example.com", "subject": "Test"})
+    assert result.result == {"sent": True, "to": "user@example.com", "subject": "Test"}
+    assert result.policy.status == PolicyStatus.ALLOW
+
+
+@pytest.mark.asyncio
+async def test_sync_action_in_async_context():
+    """Test that sync actions still work in async context."""
+    control = ControlLayer(policy_engine=PolicyEngine())
+
+    @control.register_action("sync_operation")
+    def sync_operation(value: int):
+        return value * 2
+
+    result = await control.execute("sync_operation", {"value": 21})
+    assert result.result == 42
+    assert result.policy.status == PolicyStatus.ALLOW
 
 
 def test_exception_hierarchy():

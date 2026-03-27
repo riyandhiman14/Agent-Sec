@@ -24,6 +24,7 @@ AI Agent Action Firewall - A minimal, control layer for agent actions.
 - ✅ **Context Awareness**: Rules can access parameters and context
 - ✅ **Priority & Matching**: Advanced rule evaluation (priority, all/any matching)
 - ✅ **Audit Logging**: Built-in persistent audit store for compliance
+- ✅ **Async Support**: Full async/await support for modern agent stacks
 - ✅ **Python Package**: Easy installation via PyPI
 
 ## Installation
@@ -48,31 +49,39 @@ pre-commit install
 ### Basic Usage
 
 ```python
+import asyncio
 from agsec import ControlLayer
 
-# Create control layer
-control = ControlLayer()
+async def main():
+    # Create control layer
+    control = ControlLayer()
 
-# Register an action
-@control.register_action("send_email")
-def send_email(to, subject, body):
-    return {"sent_to": to, "status": "success"}
+    # Register an action (sync or async)
+    @control.register_action("send_email")
+    async def send_email(to, subject, body):
+        # Simulate async email sending
+        await asyncio.sleep(0.1)
+        return {"sent_to": to, "status": "success"}
 
-# Execute with default allow policy
-result = control.execute("send_email", {"to": "user@example.com", "subject": "Hello", "body": "Hi!"})
-print(result.result)  # {"sent_to": "user@example.com", "status": "success"}
+    # Execute with default allow policy
+    result = await control.execute("send_email", {"to": "user@example.com", "subject": "Hello", "body": "Hi!"})
+    print(result.result)  # {"sent_to": "user@example.com", "status": "success"}
 
-# View audit logs
-executions = control.audit_store.get_executions()
-print(f"Total executions: {len(executions)}")
+    # View audit logs
+    executions = control.audit_store.get_executions()
+    print(f"Total executions: {len(executions)}")
+
+asyncio.run(main())
 ```
 
 ### With YAML Policies
 
 ```python
+import asyncio
 from agsec import ControlLayer
 
-policy_yaml = """
+async def main():
+    policy_yaml = """
 rules:
   - action: payment
     status: block
@@ -83,16 +92,19 @@ rules:
         value: 10000
 """
 
-control = ControlLayer(policy_yaml=policy_yaml)
+    control = ControlLayer(policy_yaml=policy_yaml)
 
-@control.register_action("payment")
-def payment(amount):
-    return {"charged": amount}
+    @control.register_action("payment")
+    async def payment(amount):
+        await asyncio.sleep(0.1)  # Simulate async payment processing
+        return {"charged": amount}
 
-try:
-    control.execute("payment", {"amount": 15000})
-except Exception as e:
-    print(e)  # PolicyViolationError: High-value payment blocked
+    try:
+        await control.execute("payment", {"amount": 15000})
+    except Exception as e:
+        print(e)  # PolicyViolationError: High-value payment blocked
+
+asyncio.run(main())
 ```
 
 ## API Reference
@@ -113,8 +125,8 @@ ControlLayer(
 
 #### Methods
 
-- `register_action(name)`: Decorator to register an action function
-- `execute(action, params, context=None)`: Execute an action with policy check
+- `register_action(name)`: Decorator to register an action function (supports both sync and async functions)
+- `async execute(action, params, context=None)`: Execute an action with policy check (async)
 
 ### PolicyEngine
 
