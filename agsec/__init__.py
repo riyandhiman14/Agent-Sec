@@ -1,5 +1,6 @@
 from .audit import AuditStore
 from .control import ControlLayer
+from .guard import guard
 from .exceptions import (
     ActionExecutionError,
     ActionNotFoundError,
@@ -49,6 +50,7 @@ __all__ = [
     "PolicyStatus",
     "ActionRegistry",
     "AuditStore",
+    "guard",
     # Exceptions
     "AgsecError",
     "ActionNotFoundError",
