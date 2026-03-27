@@ -181,6 +181,91 @@ pytest
 python -m build
 ```
 
+## Error Handling
+
+agsec provides a comprehensive exception hierarchy for robust error handling in production environments. All exceptions inherit from `AgsecError` and include structured error codes and detailed context.
+
+### Exception Hierarchy
+
+```
+AgsecError (base)
+├── ConfigurationError
+│   ├── InvalidConfigError
+│   ├── MissingConfigError
+│   └── ConfigValidationError
+├── RegistryError
+│   ├── ActionNotFoundError
+│   ├── DuplicateActionError
+│   ├── InvalidActionError
+│   └── RegistryFullError
+├── PolicyError
+│   ├── PolicyParseError
+│   ├── InvalidPolicyError
+│   ├── PolicyConflictError
+│   ├── PolicyTimeoutError
+│   └── PolicyViolationError
+├── ActionExecutionError
+├── AuditError
+│   ├── AuditConnectionError
+│   ├── AuditIntegrityError
+│   └── AuditStorageError
+├── ValidationError
+│   ├── ParameterValidationError
+│   ├── TypeValidationError
+│   └── SchemaValidationError
+├── SecurityError
+│   ├── SecurityViolationError
+│   ├── TamperingError
+│   └── IntegrityError
+├── InitializationError
+│   ├── DependencyError
+│   └── EnvironmentError
+└── RuntimeError
+    ├── TimeoutError
+    ├── ResourceError
+    └── ConcurrencyError
+```
+
+### Error Handling Example
+
+```python
+from agsec import ControlLayer
+from agsec.exceptions import (
+    PolicyViolationError,
+    ActionExecutionError,
+    ConfigurationError
+)
+
+control = ControlLayer()
+
+try:
+    result = control.execute("payment", {"amount": 10000})
+except PolicyViolationError as e:
+    print(f"Policy blocked: {e.details['reason']}")
+    # Handle policy violation
+except ActionExecutionError as e:
+    print(f"Action failed: {e.details['original_error']}")
+    # Handle execution error
+except ConfigurationError as e:
+    print(f"Config error: {e.details}")
+    # Handle configuration issues
+```
+
+### Error Details
+
+All exceptions provide:
+- **Error code**: Machine-readable identifier (e.g., `"POLICY_VIOLATION"`)
+- **Structured details**: Context-specific information in `details` dict
+- **Descriptive message**: Human-readable error description
+
+Common error codes:
+- `ACTION_NOT_FOUND`: Action not registered
+- `POLICY_VIOLATION`: Policy blocked the action
+- `ACTION_EXECUTION_ERROR`: Action execution failed
+- `INVALID_CONFIG`: Configuration file invalid
+- `DEPENDENCY_ERROR`: Required dependency missing
+- `TIMEOUT_ERROR`: Operation timed out
+
 ## Contributing
 
 1. Fork the repository

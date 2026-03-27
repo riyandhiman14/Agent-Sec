@@ -259,3 +259,63 @@ def test_audit_store_stats(tmp_path):
     assert stats["total_executions"] == 2
     assert stats["allowed"] == 1
     assert stats["blocked"] == 1
+
+
+def test_exception_hierarchy():
+    """Test that new exception types inherit from AgsecError and have proper structure."""
+    from agsec.exceptions import (
+        AgsecError,
+        ConfigurationError,
+        InvalidConfigError,
+        ParameterValidationError,
+        SecurityViolationError,
+        DependencyError,
+        TimeoutError,
+        ValidationError,
+        SecurityError,
+        InitializationError,
+        RuntimeError,
+    )
+
+    # Test base exception
+    base_err = AgsecError("test message", "TEST_CODE", {"key": "value"})
+    assert base_err.code == "TEST_CODE"
+    assert base_err.details["key"] == "value"
+
+    # Test configuration error
+    config_err = InvalidConfigError("/path/config.yaml", "invalid format", {"line": 10})
+    assert config_err.code == "INVALID_CONFIG"
+    assert config_err.details["config_path"] == "/path/config.yaml"
+    assert config_err.details["line"] == 10
+    assert isinstance(config_err, ConfigurationError)
+    assert isinstance(config_err, AgsecError)
+
+    # Test validation error
+    param_err = ParameterValidationError("test_action", "amount", "invalid", "int", "not a number")
+    assert param_err.code == "PARAMETER_VALIDATION_ERROR"
+    assert param_err.details["action"] == "test_action"
+    assert param_err.details["param"] == "amount"
+    assert param_err.details["expected"] == "int"
+    assert isinstance(param_err, ValidationError)
+
+    # Test security error
+    sec_err = SecurityViolationError("unauthorized_access", {"user": "hacker", "resource": "admin"})
+    assert sec_err.code == "SECURITY_VIOLATION"
+    assert sec_err.details["violation_type"] == "unauthorized_access"
+    assert sec_err.details["user"] == "hacker"
+    assert isinstance(sec_err, SecurityError)
+
+    # Test initialization error
+    dep_err = DependencyError("requests", "2.25.0", "2.20.0")
+    assert dep_err.code == "DEPENDENCY_ERROR"
+    assert dep_err.details["dependency"] == "requests"
+    assert dep_err.details["version_required"] == "2.25.0"
+    assert dep_err.details["version_found"] == "2.20.0"
+    assert isinstance(dep_err, InitializationError)
+
+    # Test runtime error
+    timeout_err = TimeoutError("policy_evaluation", 30.0)
+    assert timeout_err.code == "TIMEOUT_ERROR"
+    assert timeout_err.details["operation"] == "policy_evaluation"
+    assert timeout_err.details["timeout_seconds"] == 30.0
+    assert isinstance(timeout_err, RuntimeError)
