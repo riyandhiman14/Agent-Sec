@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from .audit import AuditStore
 from .exceptions import ActionExecutionError, ActionNotFoundError, AuditError, PolicyViolationError
@@ -34,6 +34,10 @@ class ControlLayer:
         self.logger = logger or logging.getLogger("agsec")
         self.logger.setLevel(logging.DEBUG)
 
+        # Hooks
+        self._before_hooks: List[Callable] = []
+        self._after_hooks: List[Callable] = []
+
     def register_action(self, name: str):
         def decorator(func):
             self.action_registry.register(name, func)
@@ -41,8 +45,56 @@ class ControlLayer:
 
         return decorator
 
+    # -- Hooks --
+
+    def add_hook(self, event: str, fn: Callable) -> None:
+        """Register a hook. Events: 'before_execute', 'after_execute'."""
+        if event == "before_execute":
+            self._before_hooks.append(fn)
+        elif event == "after_execute":
+            self._after_hooks.append(fn)
+        else:
+            raise ValueError(f"Unknown hook event: '{event}'. Use 'before_execute' or 'after_execute'.")
+
+    def before_hook(self, fn: Callable) -> Callable:
+        """Decorator to register a before_execute hook."""
+        self._before_hooks.append(fn)
+        return fn
+
+    def after_hook(self, fn: Callable) -> Callable:
+        """Decorator to register an after_execute hook."""
+        self._after_hooks.append(fn)
+        return fn
+
+    async def _run_hooks(self, hooks: List[Callable], *args: Any) -> None:
+        """Run a list of hooks, supporting both sync and async callables."""
+        for hook in hooks:
+            if asyncio.iscoroutinefunction(hook):
+                await hook(*args)
+            else:
+                hook(*args)
+
+    # -- Dry-run --
+
+    async def dry_run(
+        self, action: str, params: Dict[str, Any], context: Optional[Dict[str, Any]] = None
+    ) -> PolicyResult:
+        """Evaluate policy without executing the action. No audit logging."""
+        return self.policy_engine.evaluate(action, params, context)
+
+    def dry_run_sync(
+        self, action: str, params: Dict[str, Any], context: Optional[Dict[str, Any]] = None
+    ) -> PolicyResult:
+        """Sync wrapper for dry_run."""
+        return self.policy_engine.evaluate(action, params, context)
+
+    # -- Execute --
+
     async def execute(self, action: str, params: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> ActionExecutionResult:
         context = context or {}
+
+        # Before hooks
+        await self._run_hooks(self._before_hooks, action, params, context)
 
         try:
             policy: PolicyResult = self.policy_engine.evaluate(action, params, context)
@@ -97,11 +149,9 @@ class ControlLayer:
             raise
 
         try:
-            # Check if the action is a coroutine function (async)
             if asyncio.iscoroutinefunction(act):
                 result = await act(**params)
             else:
-                # For sync functions, run them in a thread pool to avoid blocking
                 from functools import partial
 
                 callable_with_args = partial(act, **params)
@@ -112,6 +162,10 @@ class ControlLayer:
             except Exception as e:
                 self.logger.error("Audit logging failed: %s", e)
             self.logger.info("Executed action: %s, result=%s", action, result)
+
+            # After hooks
+            await self._run_hooks(self._after_hooks, exec_result)
+
             return exec_result
         except Exception as e:
             self.logger.error("Action execution failed: %s, error=%s", action, e)
@@ -127,7 +181,6 @@ class ControlLayer:
         try:
             return asyncio.run(self.execute(action, params, context))
         except RuntimeError as e:
-            # In case an event loop is already running (e.g. Jupyter), use nest_asyncio if available.
             try:
                 import nest_asyncio
 
@@ -135,4 +188,3 @@ class ControlLayer:
                 return asyncio.run(self.execute(action, params, context))
             except Exception:
                 raise RuntimeError("execute_sync cannot run because an event loop is already active") from e
-

@@ -27,3 +27,7 @@ dist/
 mcp-servers/
 .env
 .mcp.json
+
+
+#docs
+*.md
