@@ -287,6 +287,27 @@ async def test_sync_action_in_async_context():
     assert result.policy.status == PolicyStatus.ALLOW
 
 
+def test_execute_sync_wrapper():
+    control = ControlLayer(policy_engine=PolicyEngine())
+
+    @control.register_action("sync_operation")
+    def sync_operation(value: int):
+        return value * 2
+
+    result = control.execute_sync("sync_operation", {"value": 11})
+    assert result.result == 22
+    assert result.policy.status == PolicyStatus.ALLOW
+
+    @control.register_action("async_operation")
+    async def async_operation(value: int):
+        await asyncio.sleep(0.01)
+        return value * 3
+
+    result2 = control.execute_sync("async_operation", {"value": 7})
+    assert result2.result == 21
+    assert result2.policy.status == PolicyStatus.ALLOW
+
+
 def test_exception_hierarchy():
     """Test that new exception types inherit from AgsecError and have proper structure."""
     from agsec.exceptions import (
