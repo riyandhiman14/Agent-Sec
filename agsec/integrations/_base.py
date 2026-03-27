@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any, Dict, Optional
+
+logger = logging.getLogger("agsec")
 
 from ..audit import AuditStore
 from ..exceptions import PolicyViolationError
@@ -69,8 +72,8 @@ class PolicyChecker:
         if project_dir:
             try:
                 self.engine.load_from_directory(project_dir)
-            except (ValueError, FileNotFoundError):
-                pass
+            except (ValueError, FileNotFoundError) as e:
+                logger.warning("Failed to load project policies from %s: %s", project_dir, e)
 
         # 2. Agent-level overlay
         if self._agent:
@@ -78,14 +81,14 @@ class PolicyChecker:
             if agent_dir:
                 try:
                     self.engine.load_from_directory(agent_dir)
-                except (ValueError, FileNotFoundError):
-                    pass
+                except (ValueError, FileNotFoundError) as e:
+                    logger.warning("Failed to load agent policies from %s: %s", agent_dir, e)
 
         # 3. Audit store
         if self._audit_enabled:
             try:
                 agsec_dir = os.path.join(os.path.expanduser("~"), ".agsec")
-                os.makedirs(agsec_dir, exist_ok=True)
+                os.makedirs(agsec_dir, mode=0o700, exist_ok=True)
                 db_path = os.environ.get(
                     "AGSEC_AUDIT_DB", os.path.join(agsec_dir, "audit.db")
                 )

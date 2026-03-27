@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -12,7 +13,20 @@ from ..types import ActionExecutionResult
 class AuditStore:
     def __init__(self, db_path: Optional[str] = None):
         self.db_path = db_path or ":memory:"
-        self.conn = sqlite3.connect(self.db_path)
+
+        # Restrict file permissions for on-disk databases
+        if self.db_path != ":memory:":
+            parent = os.path.dirname(self.db_path)
+            if parent:
+                os.makedirs(parent, mode=0o700, exist_ok=True)
+            old_umask = os.umask(0o077)
+            try:
+                self.conn = sqlite3.connect(self.db_path)
+            finally:
+                os.umask(old_umask)
+        else:
+            self.conn = sqlite3.connect(self.db_path)
+
         self.conn.row_factory = sqlite3.Row
         self._init_db()
 
@@ -39,8 +53,8 @@ class AuditStore:
         """, (
             datetime.utcnow().isoformat(),
             execution.action,
-            json.dumps(execution.params),
-            json.dumps(execution.result) if execution.result is not None else None,
+            json.dumps(execution.params, default=str),
+            json.dumps(execution.result, default=str) if execution.result is not None else None,
             execution.policy.status.value,
             execution.policy.reason,
             json.dumps(context) if context else None,

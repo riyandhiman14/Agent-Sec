@@ -186,13 +186,16 @@ class ControlLayer:
     ) -> ActionExecutionResult:
         """Sync wrapper around async execute for compatibility with non-async code."""
         try:
+            # Check if an event loop is already running
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # We're inside an async context (Jupyter, FastAPI, etc.)
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as pool:
+                    future = pool.submit(asyncio.run, self.execute(action, params, context))
+                    return future.result()
+            else:
+                return loop.run_until_complete(self.execute(action, params, context))
+        except RuntimeError:
+            # No event loop exists — create one
             return asyncio.run(self.execute(action, params, context))
-        except RuntimeError as e:
-            try:
-                import nest_asyncio
-                nest_asyncio.apply()
-                return asyncio.run(self.execute(action, params, context))
-            except Exception:
-                raise RuntimeError(
-                    "execute_sync cannot run because an event loop is already active"
-                ) from e

@@ -1,18 +1,20 @@
-"""Fluent condition builder for inline policies.
+"""Fluent condition builder and rule helpers for inline policies.
 
 Usage:
-    from agsec.integrations.conditions import param
+    from agsec.integrations.conditions import param, allow, deny, review
 
     param("amount") > 10000
     param("query").contains("DROP")
-    param("url").regex(r"^https://")
-    param("email").ends_with("@company.com")
-    param("token").exists()
+    deny("payment").when(param("amount") > 10000)
+    allow("search", "calculator")
 """
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, List
+
+from ..policy.statement import Statement
+from ..types import PolicyStatus
 
 
 class Condition:
@@ -98,3 +100,81 @@ class param:
 
     def not_exists(self) -> Condition:
         return Condition(self.key, "not_exists")
+
+
+# ---------------------------------------------------------------------------
+# Rule helpers — allow(), deny(), review()
+# ---------------------------------------------------------------------------
+
+_EFFECT_TO_STATUS = {
+    "allow": PolicyStatus.ALLOW,
+    "deny": PolicyStatus.BLOCK,
+    "review": PolicyStatus.REVIEW,
+}
+
+
+class ToolRule:
+    """One or more tools/names with an effect and optional conditions."""
+
+    def __init__(self, *names: Any, effect: str):
+        self.names: tuple = names
+        self.effect: str = effect
+        self.conditions: list = []
+
+    def when(self, *conditions: Condition) -> "ToolRule":
+        """Add conditions to this rule. Returns self for chaining."""
+        self.conditions.extend(conditions)
+        return self
+
+
+def allow(*names: Any) -> ToolRule:
+    """Mark tools/actions as allowed."""
+    return ToolRule(*names, effect="allow")
+
+
+def deny(*names: Any) -> ToolRule:
+    """Mark tools/actions as denied (blocked)."""
+    return ToolRule(*names, effect="deny")
+
+
+def review(*names: Any) -> ToolRule:
+    """Mark tools/actions as requiring human review."""
+    return ToolRule(*names, effect="review")
+
+
+def _get_tool_name(item: Any) -> str:
+    """Extract a name string from a tool object or string."""
+    if isinstance(item, str):
+        return item
+    # LangChain BaseTool or anything with a .name attribute
+    if hasattr(item, "name"):
+        return item.name
+    return str(item)
+
+
+def compile_rules(rules: List[ToolRule], action_prefix: str = "tool") -> List[Statement]:
+    """Convert ToolRules into PolicyEngine Statement objects."""
+    statements = []
+    for rule in rules:
+        effect = _EFFECT_TO_STATUS[rule.effect]
+        tool_names = [f"{action_prefix}.{_get_tool_name(t)}" for t in rule.names]
+
+        conditions = {}
+        for cond in rule.conditions:
+            conditions.update(cond.to_dict())
+
+        sid_parts = [rule.effect.title()]
+        if len(rule.names) == 1:
+            sid_parts.append(_get_tool_name(rule.names[0]).title())
+        else:
+            sid_parts.append(f"{len(rule.names)}Tools")
+
+        statements.append(Statement(
+            sid="_".join(sid_parts),
+            effect=effect,
+            actions=tool_names,
+            conditions=conditions,
+            reason=f"{rule.effect} by inline policy",
+        ))
+
+    return statements

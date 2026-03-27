@@ -51,7 +51,13 @@ def _evaluate_condition(value: Any, condition: Any) -> bool:
         if op == "ends_with":
             return str(value).endswith(str(expected))
         if op == "regex":
-            return bool(re.search(str(expected), str(value)))
+            pattern = str(expected)
+            if len(pattern) > 1000:
+                return False  # Reject overly long patterns
+            try:
+                return bool(re.search(pattern, str(value)))
+            except re.error:
+                return False  # Invalid regex fails safely
 
         raise ValueError(f"Unsupported condition operator: {op}")
 
