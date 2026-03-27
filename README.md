@@ -6,6 +6,16 @@ AI Agent Action Firewall
 
 Minimal open-source control layer for agent actions.
 
+## Development
+
+### Setup
+
+```bash
+pip install -e .
+pip install pre-commit
+pre-commit install
+```
+
 ### Quick start
 
 ```python
