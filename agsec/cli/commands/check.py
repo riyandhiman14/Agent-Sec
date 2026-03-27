@@ -8,7 +8,7 @@ import sys
 from ...audit import AuditStore
 from ...policy import PolicyEngine
 from ...types import ActionExecutionResult, PolicyResult, PolicyStatus
-from ..config import find_policy_dir, get_audit_db_path
+from ..config import find_policy_dir, get_audit_db_path, load_mode
 from ..mapping import map_tool_to_action
 
 
@@ -47,6 +47,12 @@ def run(args):
     else:
         action, params = raw.get("action", "unknown"), raw.get("params", {})
 
+    # Validate types
+    if not isinstance(action, str):
+        action = str(action)
+    if not isinstance(params, dict):
+        params = {}
+
     # Build context from hook metadata
     context = {}
     for key in ("session_id", "cwd", "permission_mode"):
@@ -77,6 +83,10 @@ def run(args):
     # Evaluate
     result = engine.evaluate(action, params, context)
 
+    # Check mode (observe vs enforce)
+    mode = load_mode()
+    context["agsec_mode"] = mode
+
     # Audit log (never fail the check due to audit)
     try:
         audit = AuditStore(get_audit_db_path())
@@ -85,7 +95,11 @@ def run(args):
     except Exception:
         pass
 
-    # Output based on format
+    # Observe mode: log everything but always allow
+    if mode == "observe":
+        sys.exit(0)
+
+    # Enforce mode: act on policy decision
     if result.status == PolicyStatus.ALLOW:
         sys.exit(0)
 

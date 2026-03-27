@@ -6,7 +6,7 @@ import json
 import sys
 
 from ...audit import AuditStore
-from ..config import get_audit_db_path
+from ..config import get_audit_db_path, load_mode
 
 
 def register(subparsers):
@@ -27,15 +27,22 @@ def run(args):
 
     if args.stats:
         stats = audit.get_execution_stats()
+        mode = load_mode()
         if args.as_json:
+            stats["mode"] = mode
             print(json.dumps(stats, indent=2))
         else:
-            print("Audit Statistics")
-            print(f"  Total:    {stats['total_executions']}")
-            print(f"  Allowed:  {stats['allowed']}")
-            print(f"  Blocked:  {stats['blocked']}")
-            print(f"  Reviewed: {stats['reviewed']}")
-            print(f"  Errors:   {stats['errors']}")
+            mode_label = "OBSERVE" if mode == "observe" else "ENFORCE"
+            print(f"Audit Statistics ({mode_label} mode)")
+            print(f"  Total:        {stats['total_executions']}")
+            print(f"  Allowed:      {stats['allowed']}")
+            if mode == "observe":
+                print(f"  Would block:  {stats['blocked']}")
+                print(f"  Would review: {stats['reviewed']}")
+            else:
+                print(f"  Blocked:      {stats['blocked']}")
+                print(f"  Reviewed:     {stats['reviewed']}")
+            print(f"  Errors:       {stats['errors']}")
         return
 
     executions = audit.get_executions(action=args.action, limit=args.limit)

@@ -4,24 +4,29 @@ import json
 import os
 import sqlite3
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from ..types import ActionExecutionResult
 
 
 class AuditStore:
+    """SQLite-backed audit store for logging policy decisions.
+
+    Thread-safe: uses check_same_thread=False for file-based databases.
+    Supports context manager protocol for automatic cleanup.
+    """
+
     def __init__(self, db_path: Optional[str] = None):
         self.db_path = db_path or ":memory:"
 
-        # Restrict file permissions for on-disk databases
         if self.db_path != ":memory:":
-            parent = os.path.dirname(self.db_path)
-            if parent:
-                os.makedirs(parent, mode=0o700, exist_ok=True)
+            # Restrict file permissions for on-disk databases
             old_umask = os.umask(0o077)
             try:
-                self.conn = sqlite3.connect(self.db_path)
+                parent = os.path.dirname(self.db_path)
+                if parent:
+                    os.makedirs(parent, mode=0o700, exist_ok=True)
+                self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
             finally:
                 os.umask(old_umask)
         else:
@@ -29,6 +34,20 @@ class AuditStore:
 
         self.conn.row_factory = sqlite3.Row
         self._init_db()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
+    def close(self) -> None:
+        """Close the database connection."""
+        if self.conn:
+            try:
+                self.conn.close()
+            except Exception:
+                pass
 
     def _init_db(self) -> None:
         self.conn.execute("""
@@ -57,7 +76,7 @@ class AuditStore:
             json.dumps(execution.result, default=str) if execution.result is not None else None,
             execution.policy.status.value,
             execution.policy.reason,
-            json.dumps(context) if context else None,
+            json.dumps(context, default=str) if context else None,
             error
         ))
         self.conn.commit()
@@ -92,6 +111,12 @@ class AuditStore:
         return dict(stats)
 
     def export_to_json(self, file_path: str) -> None:
-        executions = self.get_executions(limit=10000)  # Export last 10k
-        with open(file_path, 'w') as f:
-            json.dump(executions, f, indent=2)
+        executions = self.get_executions(limit=10000)
+        # Write with restricted permissions
+        old_umask = os.umask(0o077)
+        try:
+            fd = os.open(file_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w") as f:
+                json.dump(executions, f, indent=2)
+        finally:
+            os.umask(old_umask)

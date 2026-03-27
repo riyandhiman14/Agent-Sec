@@ -11,6 +11,16 @@ statements:
         value: "(\\.env$|\\.env\\..+|credentials\\.json|secrets\\.ya?ml|\\.ssh/|id_rsa|\\.aws/credentials|\\.gcloud/|service[_-]account.*\\.json)"
     reason: "Writing to sensitive files is blocked"
 
+  # Block writes to agsec config and hook files (prevent policy tampering)
+  - sid: "BlockWriteAgsecConfig"
+    effect: deny
+    actions: ["file.write", "file.edit"]
+    conditions:
+      params.file_path:
+        op: "regex"
+        value: "(\\.agsec\\.yaml|policies/.*\\.ya?ml|\\.claude/settings.*\\.json|\\.codex/hooks\\.json)"
+    reason: "Writing to agsec policies or hook config is blocked"
+
   # Block writes to system directories
   - sid: "BlockWriteSystemDirs"
     effect: deny

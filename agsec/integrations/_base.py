@@ -98,6 +98,11 @@ class PolicyChecker:
 
         self._loaded = True
 
+    def close(self) -> None:
+        """Close the audit store connection."""
+        if self._audit_store:
+            self._audit_store.close()
+
     def check(
         self, action: str, params: Dict[str, Any], context: Optional[Dict[str, Any]] = None
     ) -> PolicyResult:
