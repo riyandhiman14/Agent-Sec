@@ -22,3 +22,5 @@ dist/
 
 # System
 .DS_Store
+
+.env
