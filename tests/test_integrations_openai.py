@@ -6,7 +6,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agsec.integrations.openai import protect, _check_tool_call, _build_engine
+from agsec.integrations.openai import protect
+from agsec.integrations._base import build_engine, check_tool
 from agsec.integrations.conditions import allow, deny, review, param
 from agsec.types import PolicyStatus
 
@@ -50,31 +51,31 @@ def _make_client(response):
 
 class TestCheckToolCall:
     def test_allowed(self):
-        engine = _build_engine([allow("search")])
-        status, reason, meta = _check_tool_call(engine, "search", '{"query": "test"}')
+        engine = build_engine([allow("search")])
+        status, reason, meta = check_tool(engine, "search", '{"query": "test"}')
         assert status == PolicyStatus.ALLOW
 
     def test_blocked(self):
-        engine = _build_engine([deny("delete_user")])
-        status, reason, meta = _check_tool_call(engine, "delete_user", '{}')
+        engine = build_engine([deny("delete_user")])
+        status, reason, meta = check_tool(engine, "delete_user", '{}')
         assert status == PolicyStatus.BLOCK
 
     def test_default_deny(self):
-        engine = _build_engine([allow("search")])
-        status, _, _ = _check_tool_call(engine, "unknown_tool", '{}')
+        engine = build_engine([allow("search")])
+        status, _, _ = check_tool(engine, "unknown_tool", '{}')
         assert status == PolicyStatus.BLOCK
 
     def test_conditional_deny(self):
-        engine = _build_engine([
+        engine = build_engine([
             deny("payment").when(param("amount") > 10000),
             allow("payment"),
         ])
         # Small amount — allowed
-        status, _, _ = _check_tool_call(engine, "payment", '{"amount": 500}')
+        status, _, _ = check_tool(engine, "payment", '{"amount": 500}')
         assert status == PolicyStatus.ALLOW
 
         # Large amount — blocked
-        status, _, _ = _check_tool_call(engine, "payment", '{"amount": 50000}')
+        status, _, _ = check_tool(engine, "payment", '{"amount": 50000}')
         assert status == PolicyStatus.BLOCK
 
 

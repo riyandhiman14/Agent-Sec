@@ -123,6 +123,11 @@ class ToolRule:
 
     def when(self, *conditions: Condition) -> "ToolRule":
         """Add conditions to this rule. Returns self for chaining."""
+        for c in conditions:
+            if not isinstance(c, Condition):
+                raise TypeError(
+                    f"when() expects Condition objects (from param()), got {type(c).__name__}"
+                )
         self.conditions.extend(conditions)
         return self
 

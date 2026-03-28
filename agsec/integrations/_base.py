@@ -153,5 +153,61 @@ class PolicyChecker:
                 action=action, params=params, result=None, policy=result,
             )
             self._audit_store.log_execution(exec_result, context)
-        except Exception:
+        except Exception as e:
+            logger.debug("Audit logging failed in PolicyChecker: %s", e)
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers for OpenAI / Anthropic integrations
+# ---------------------------------------------------------------------------
+
+
+def build_engine(rules, policy_dir=None, agent=None):
+    """Build a PolicyEngine from inline rules + optional YAML policies."""
+    from .conditions import compile_rules
+
+    engine = PolicyEngine(default="deny")
+    engine._iam_loaded = True
+
+    if rules:
+        for stmt in compile_rules(rules):
+            engine.add_statement(stmt)
+
+    if policy_dir:
+        try:
+            engine.load_from_directory(policy_dir)
+        except (ValueError, FileNotFoundError):
             pass
+
+    if agent:
+        agent_dir = _get_agent_policy_dir(agent)
+        if agent_dir:
+            try:
+                engine.load_from_directory(agent_dir)
+            except (ValueError, FileNotFoundError):
+                pass
+
+    return engine
+
+
+def check_tool(engine, name, arguments):
+    """Check a single tool call against policies. Returns (status, reason, metadata).
+
+    Handles both dict arguments and JSON string arguments.
+    Blocks on malformed/unparseable arguments (fail safe).
+    """
+    import json
+
+    action = f"tool.{name}"
+    params = {}
+
+    if isinstance(arguments, str):
+        try:
+            params = json.loads(arguments)
+        except (json.JSONDecodeError, TypeError):
+            return PolicyStatus.BLOCK, "Tool arguments could not be parsed", {"matched_by": "parse_error"}
+    elif isinstance(arguments, dict):
+        params = arguments
+
+    result = engine.evaluate(action, params)
+    return result.status, result.reason, result.metadata

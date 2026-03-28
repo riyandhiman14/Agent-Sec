@@ -72,11 +72,14 @@ def find_config_path(start_dir: str | None = None) -> str | None:
     return None
 
 
+VALID_MODES = ("observe", "enforce", "halt")
+
+
 def load_mode(start_dir: str | None = None) -> str:
-    """Return 'observe' or 'enforce'. Default: 'enforce'."""
+    """Return 'observe', 'enforce', or 'halt'. Default: 'enforce'."""
     # Env var takes priority
     env_mode = os.environ.get("AGSEC_MODE")
-    if env_mode in ("observe", "enforce"):
+    if env_mode in VALID_MODES:
         return env_mode
 
     config_path = find_config_path(start_dir)
@@ -90,8 +93,11 @@ def load_mode(start_dir: str | None = None) -> str:
     return "enforce"
 
 
-def set_mode(mode: str, start_dir: str | None = None) -> str:
-    """Write mode to .agsec.yaml. Returns path of config file."""
+def set_mode(mode: str, start_dir: str | None = None, store_previous: bool = False) -> str:
+    """Write mode to .agsec.yaml. Returns path of config file.
+
+    If store_previous=True, saves the current mode as previous_mode (used by halt/resume).
+    """
     config_path = find_config_path(start_dir)
     if config_path:
         try:
@@ -99,6 +105,8 @@ def set_mode(mode: str, start_dir: str | None = None) -> str:
                 doc = yaml.safe_load(f) or {}
         except Exception:
             doc = {}
+        if store_previous:
+            doc["previous_mode"] = doc.get("mode", "enforce")
         doc["mode"] = mode
         with open(config_path, "w") as f:
             yaml.dump(doc, f, default_flow_style=False, sort_keys=False)
@@ -106,6 +114,22 @@ def set_mode(mode: str, start_dir: str | None = None) -> str:
 
     # No config file found — create one in cwd
     config_path = os.path.join(os.getcwd(), CONFIG_FILENAME)
+    doc = {"mode": mode}
+    if store_previous:
+        doc["previous_mode"] = "enforce"
     with open(config_path, "w") as f:
-        yaml.dump({"mode": mode}, f, default_flow_style=False, sort_keys=False)
+        yaml.dump(doc, f, default_flow_style=False, sort_keys=False)
     return config_path
+
+
+def get_previous_mode(start_dir: str | None = None) -> str:
+    """Return the mode that was active before halt. Default: 'enforce'."""
+    config_path = find_config_path(start_dir)
+    if config_path:
+        try:
+            with open(config_path, "r") as f:
+                doc = yaml.safe_load(f) or {}
+            return doc.get("previous_mode", "enforce")
+        except Exception:
+            pass
+    return "enforce"
