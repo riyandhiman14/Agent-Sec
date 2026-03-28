@@ -16,6 +16,13 @@ def register(subparsers):
     p.set_defaults(func=run)
 
 
+def register_uninstall(subparsers):
+    p = subparsers.add_parser("uninstall", help="Remove agsec hooks from an agent platform")
+    p.add_argument("platform", choices=["claude-code", "codex"], help="Target platform")
+    p.add_argument("--project-dir", default=None, help="Project root (default: cwd)")
+    p.set_defaults(func=run_uninstall)
+
+
 def _find_agsec_bin() -> str:
     """Find the full path to the agsec executable."""
     # Check if running as console script
@@ -141,3 +148,95 @@ def _install_codex(project_dir: str):
     print("agsec hook installed for Codex.")
     print(f"  Config: {hooks_path}")
     print(f"  Hook: {hook_command}")
+
+
+# ---------------------------------------------------------------------------
+# Uninstall
+# ---------------------------------------------------------------------------
+
+
+def run_uninstall(args):
+    project_dir = os.path.abspath(args.project_dir or os.getcwd())
+
+    if args.platform == "claude-code":
+        _uninstall_claude_code(project_dir)
+    elif args.platform == "codex":
+        _uninstall_codex(project_dir)
+
+
+def _uninstall_claude_code(project_dir: str):
+    settings_path = os.path.join(project_dir, ".claude", "settings.json")
+
+    if not os.path.isfile(settings_path):
+        print("agsec is not installed for Claude Code (no settings.json found).")
+        return
+
+    with open(settings_path, "r") as f:
+        try:
+            settings = json.load(f)
+        except json.JSONDecodeError:
+            print("Could not read settings.json.")
+            return
+
+    hooks = settings.get("hooks", {})
+    pre_tool_hooks = hooks.get("PreToolUse", [])
+
+    # Filter out agsec hooks
+    filtered = [
+        h for h in pre_tool_hooks
+        if not (isinstance(h, dict) and "agsec" in str(h.get("hooks", [{}])[0].get("command", "")))
+    ]
+
+    if len(filtered) == len(pre_tool_hooks):
+        print("agsec is not installed for Claude Code.")
+        return
+
+    # Clean up empty structures
+    if filtered:
+        hooks["PreToolUse"] = filtered
+    else:
+        hooks.pop("PreToolUse", None)
+
+    if hooks:
+        settings["hooks"] = hooks
+    else:
+        settings.pop("hooks", None)
+
+    fd = os.open(settings_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump(settings, f, indent=2)
+
+    print("agsec hook removed from Claude Code.")
+    print(f"  Config: {settings_path}")
+    print("  Restart Claude Code for changes to take effect.")
+
+
+def _uninstall_codex(project_dir: str):
+    hooks_path = os.path.join(project_dir, ".codex", "hooks.json")
+
+    if not os.path.isfile(hooks_path):
+        print("agsec is not installed for Codex (no hooks.json found).")
+        return
+
+    with open(hooks_path, "r") as f:
+        try:
+            config = json.load(f)
+        except json.JSONDecodeError:
+            print("Could not read hooks.json.")
+            return
+
+    hooks_list = config.get("hooks", [])
+    filtered = [h for h in hooks_list if "agsec" not in h.get("command", "")]
+
+    if len(filtered) == len(hooks_list):
+        print("agsec is not installed for Codex.")
+        return
+
+    config["hooks"] = filtered
+
+    fd = os.open(hooks_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump(config, f, indent=2)
+
+    print("agsec hook removed from Codex.")
+    print(f"  Config: {hooks_path}")

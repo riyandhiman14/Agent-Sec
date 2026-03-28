@@ -19,6 +19,7 @@ def main():
     check.register(subparsers)
     validate.register(subparsers)
     install.register(subparsers)
+    install.register_uninstall(subparsers)
     policy.register(subparsers)
     audit.register(subparsers)
     mode.register_observe(subparsers)
