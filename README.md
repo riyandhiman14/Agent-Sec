@@ -3,55 +3,115 @@
 [![PyPI version](https://badge.fury.io/py/agsec.svg)](https://pypi.org/project/agsec/)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![OWASP Agentic Top 10](https://img.shields.io/badge/OWASP%20Agentic%20Top%2010-7%2F10%20covered-orange)](docs/owasp-mapping.md)
 
-**Action firewall for AI agents.** Before an agent can do anything, it passes through agsec.
+---
+
+**Your AI agent has shell access. File access. Network access. Git access.**
+
+**There are no guardrails by default.**
+
+AgSec is a policy engine for AI agents - like AWS IAM, but for what agents can do on your machine. Write declarative YAML policies. Every action gets checked at runtime before it executes. Deny always wins.
 
 ```
-Agent wants to act  -->  agsec evaluates policy  -->  allow / block / review  -->  real world
+agent wants to act  →  agsec evaluates policy  →  allow / deny / review  →  real world
 ```
 
-## Why
+---
 
-AI agents get real access to real systems. agsec gives you one policy layer across all of them — declarative YAML policies, runtime enforcement, full audit trail. Like AWS IAM, but for what agents can do. Addresses [7 of 10 OWASP Agentic Top 10](docs/owasp-mapping.md) risks.
+## The problem
 
-## Quick Start
+You give Claude Code, Cursor, or Codex access to your terminal. It tries to be helpful. Sometimes it runs `rm -rf`. Writes to `.env`. Force-pushes to main. Makes an API call you didn't expect.
+
+It's not malicious. It's just that agents have no blast radius limit unless you give them one.
+
+agsec is that limit.
+
+---
+
+## 3-command setup
 
 ```bash
 pip install agsec
-agsec init                     # create default policies
-agsec install claude-code      # activate firewall
+agsec init                    # scaffold default policies
+agsec install claude-code     # activate the firewall
 ```
 
-Done. Every tool call is now checked. `rm -rf` blocked, `.env` writes blocked, force push blocked — out of the box.
+Done. Every tool call is now checked against your policies. Out of the box, the following are blocked:
 
-### Start in Observe Mode
+- `rm`, `rm -rf`, `rmdir` — destructive deletes
+- Writes to `.env`, `.env.*`, secrets files
+- `git push --force` — force pushes
+- `DROP TABLE`, `DELETE FROM` without WHERE — destructive SQL
+- Reads of `~/.ssh`, `~/.aws`, `~/.gnupg` — credential directories
 
-Not ready to block? Audit everything first, block nothing:
+---
+
+## Not ready to block yet? Start in Observe Mode
 
 ```bash
-agsec init --observe           # log only, no blocking
-agsec audit --stats            # see what would be blocked
-agsec enforce                  # start blocking when ready
+agsec init --observe          # log everything, block nothing
+agsec audit --stats           # see what would have been blocked
+agsec enforce                 # start blocking when ready
 ```
 
-## Supported Platforms
+Observe mode gives you a full audit trail of every action your agent attempted — with zero disruption to your workflow. See the blast radius before you enforce it.
 
-### System Agents (hook-based enforcement)
+---
+
+## Write your own policies
+
+```yaml
+version: "1.0"
+default: deny
+
+statements:
+  - sid: "AllowReadOps"
+    effect: allow
+    actions: ["file.read", "file.glob", "file.grep"]
+
+  - sid: "BlockDeletes"
+    effect: deny
+    actions: ["bash.execute"]
+    conditions:
+      params.command:
+        op: "regex"
+        value: "\\brm\\s"
+    reason: "Agents should not delete files"
+
+  - sid: "ReviewLargePayments"
+    effect: review               # pause and ask a human
+    actions: ["payment.create"]
+    conditions:
+      params.amount:
+        op: "gt"
+        value: 10000
+
+  - sid: "AllowBash"
+    effect: allow
+    actions: ["bash.execute"]
+```
+
+Three effects: `allow`, `deny`, `review` (human-in-the-loop pause). Deny always wins — same evaluation logic as AWS IAM. Layered policy evaluation (project + agent layers) where each layer is a gate. Supports 14 condition operators: `==`, `!=`, `>`, `<`, `>=`, `<=`, `in`, `not_in`, `contains`, `starts_with`, `ends_with`, `regex`, `exists`, `not_exists`.
+
+---
+
+## Supported platforms
+
+### System agents — hook-based enforcement
 
 ```bash
-agsec install claude-code      # Claude Code + Claude Cowork (tested)
-agsec install codex            # OpenAI Codex
-agsec install cursor           # Cursor
-agsec install windsurf         # Windsurf (Codeium)
-agsec install cline            # Cline
-agsec install copilot          # GitHub Copilot (project + user level)
+agsec install claude-code     # Claude Code + Claude Cowork ✓ tested
+agsec install codex           # OpenAI Codex
+agsec install cursor          # Cursor
+agsec install windsurf        # Windsurf (Codeium)
+agsec install cline           # Cline
+agsec install copilot         # GitHub Copilot (project + user level)
 ```
 
-Claude Code and Claude Cowork are fully tested. Codex, Cursor, Windsurf, and Cline are functional but need community testing. VS Code Copilot also works with `agsec install claude-code` since it reads `.claude/settings.json`. Please report issues.
+Claude Code and Claude Cowork are fully tested. Others are functional — community testing welcome.
 
-### Python SDKs (client wrapper)
-
-### Frameworks (tool wrapper)
+### Python frameworks
 
 **LangChain:**
 
@@ -88,62 +148,51 @@ def send_email(to, subject, body):
     ...
 ```
 
-## Policy Example
+---
 
-```yaml
-version: "1.0"
-default: deny
-
-statements:
-  - sid: "AllowReadOps"
-    effect: allow
-    actions: ["file.read", "file.glob", "file.grep"]
-
-  - sid: "BlockFileDelete"
-    effect: deny
-    actions: ["bash.execute"]
-    conditions:
-      params.command:
-        op: "regex"
-        value: "\\brm\\s"
-    reason: "Agents should not delete files"
-
-  - sid: "AllowBash"
-    effect: allow
-    actions: ["bash.execute"]
-```
-
-Deny always wins. Same evaluation order as AWS IAM.
-
-## CLI
+## CLI reference
 
 ```bash
-agsec init [--observe]         # scaffold policies
-agsec install <platform>       # activate (claude-code, codex, cursor, windsurf, cline, copilot)
-agsec uninstall <platform>     # deactivate
-agsec policy list              # see all rules
-agsec policy add               # add a rule (interactive)
-agsec policy remove <sid>      # remove a rule
-agsec validate                 # check for errors
-agsec audit [--stats]          # view logs
-agsec observe                  # switch to observe mode
-agsec enforce                  # switch to enforce mode
-agsec halt                     # kill switch: block ALL actions immediately
-agsec resume                   # restore from halt
+agsec init [--observe]        # scaffold policies
+agsec install <platform>      # activate firewall
+agsec uninstall <platform>    # deactivate
+
+agsec policy list             # view all rules
+agsec policy add              # add a rule (interactive)
+agsec policy remove <sid>     # remove a rule
+agsec validate                # check for errors
+
+agsec audit [--stats]         # view action log
+agsec analyze [--hours N]     # threat analysis with blast radius
+agsec observe                 # switch to observe mode
+agsec enforce                 # switch to enforce mode
+
+agsec halt                    # kill switch: block ALL actions immediately
+agsec resume                  # restore from halt
 ```
+
+---
+
+## OWASP Agentic Top 10 coverage
+
+agsec addresses 7 of the 10 OWASP Agentic Top 10 risks out of the box. See the [full mapping](docs/owasp-mapping.md).
+
+---
 
 ## Documentation
 
 - [Policy Format](docs/policies.md) — schema, operators, conditions, examples
-- [CLI Reference](docs/cli.md) — all commands in detail
-- [Integrations](docs/integrations.md) — Claude Code/Cowork, Codex, Cursor, Windsurf, Cline, Copilot, LangChain, OpenAI, Anthropic
+- [CLI Reference](docs/cli.md) — all commands
+- [Integrations](docs/integrations.md) — Claude Code, Codex, Cursor, Windsurf, Cline, Copilot, LangChain, OpenAI, Anthropic
 - [SDK Usage](docs/sdk.md) — programmatic Python API
-- [Observe Mode](docs/observe-mode.md) — audit first, enforce later
-- [OWASP Mapping](docs/owasp-mapping.md) — compliance with OWASP Agentic Top 10
+- [Observe Mode](docs/observe-mode.md) — audit-first workflow
+- [OWASP Mapping](docs/owasp-mapping.md) — compliance reference
+
+---
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and guidelines.
+See [CONTRIBUTING.md](CONTRIBUTING.md). Issues and PRs welcome — especially platform testing reports for Codex, Cursor, Windsurf, and Cline.
 
 ## License
 
