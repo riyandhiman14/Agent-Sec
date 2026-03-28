@@ -11,14 +11,14 @@ import sys
 
 def register(subparsers):
     p = subparsers.add_parser("install", help="Install agsec hooks for an agent platform")
-    p.add_argument("platform", choices=["claude-code", "codex"], help="Target platform")
+    p.add_argument("platform", choices=["claude-code", "codex", "cursor", "windsurf", "cline", "copilot"], help="Target platform")
     p.add_argument("--project-dir", default=None, help="Project root (default: cwd)")
     p.set_defaults(func=run)
 
 
 def register_uninstall(subparsers):
     p = subparsers.add_parser("uninstall", help="Remove agsec hooks from an agent platform")
-    p.add_argument("platform", choices=["claude-code", "codex"], help="Target platform")
+    p.add_argument("platform", choices=["claude-code", "codex", "cursor", "windsurf", "cline", "copilot"], help="Target platform")
     p.add_argument("--project-dir", default=None, help="Project root (default: cwd)")
     p.set_defaults(func=run_uninstall)
 
@@ -35,11 +35,15 @@ def _find_agsec_bin() -> str:
 
 def run(args):
     project_dir = os.path.abspath(args.project_dir or os.getcwd())
-
-    if args.platform == "claude-code":
-        _install_claude_code(project_dir)
-    elif args.platform == "codex":
-        _install_codex(project_dir)
+    installers = {
+        "claude-code": _install_claude_code,
+        "codex": _install_codex,
+        "cursor": _install_cursor,
+        "windsurf": _install_windsurf,
+        "cline": _install_cline,
+        "copilot": _install_copilot,
+    }
+    installers[args.platform](project_dir)
 
 
 def _install_claude_code(project_dir: str):
@@ -157,11 +161,15 @@ def _install_codex(project_dir: str):
 
 def run_uninstall(args):
     project_dir = os.path.abspath(args.project_dir or os.getcwd())
-
-    if args.platform == "claude-code":
-        _uninstall_claude_code(project_dir)
-    elif args.platform == "codex":
-        _uninstall_codex(project_dir)
+    uninstallers = {
+        "claude-code": _uninstall_claude_code,
+        "codex": _uninstall_codex,
+        "cursor": _uninstall_cursor,
+        "windsurf": _uninstall_windsurf,
+        "cline": _uninstall_cline,
+        "copilot": _uninstall_copilot,
+    }
+    uninstallers[args.platform](project_dir)
 
 
 def _uninstall_claude_code(project_dir: str):
@@ -240,3 +248,296 @@ def _uninstall_codex(project_dir: str):
 
     print("agsec hook removed from Codex.")
     print(f"  Config: {hooks_path}")
+
+
+# ---------------------------------------------------------------------------
+# Cursor
+# ---------------------------------------------------------------------------
+
+
+def _install_cursor(project_dir: str):
+    cursor_dir = os.path.join(project_dir, ".cursor")
+    os.makedirs(cursor_dir, mode=0o700, exist_ok=True)
+
+    hooks_path = os.path.join(cursor_dir, "hooks.json")
+    agsec_cmd = _find_agsec_bin()
+    policy_dir = _find_policy_dir(project_dir)
+
+    hook_command = f"{agsec_cmd} check --format=cursor"
+    if policy_dir:
+        hook_command += f" --policy-dir {shlex.quote(policy_dir)}"
+
+    hook_entry = {"command": hook_command}
+
+    config = {"version": 1, "hooks": {}}
+    if os.path.isfile(hooks_path):
+        with open(hooks_path, "r") as f:
+            try:
+                config = json.load(f)
+            except json.JSONDecodeError:
+                config = {"version": 1, "hooks": {}}
+
+    hooks = config.setdefault("hooks", {})
+    shell_hooks = hooks.setdefault("beforeShellExecution", [])
+
+    if any("agsec" in h.get("command", "") for h in shell_hooks):
+        print("agsec hook already installed for Cursor.")
+        return
+
+    shell_hooks.append(hook_entry)
+
+    _write_json(hooks_path, config)
+    print("agsec hook installed for Cursor.")
+    print(f"  Config: {hooks_path}")
+
+
+def _uninstall_cursor(project_dir: str):
+    hooks_path = os.path.join(project_dir, ".cursor", "hooks.json")
+    _uninstall_json_hooks(hooks_path, "Cursor", "beforeShellExecution")
+
+
+# ---------------------------------------------------------------------------
+# Windsurf
+# ---------------------------------------------------------------------------
+
+
+def _install_windsurf(project_dir: str):
+    windsurf_dir = os.path.join(project_dir, ".windsurf")
+    os.makedirs(windsurf_dir, mode=0o700, exist_ok=True)
+
+    settings_path = os.path.join(windsurf_dir, "settings.json")
+    agsec_cmd = _find_agsec_bin()
+    policy_dir = _find_policy_dir(project_dir)
+
+    hook_command = f"{agsec_cmd} check --format=windsurf"
+    if policy_dir:
+        hook_command += f" --policy-dir {shlex.quote(policy_dir)}"
+
+    new_hook = {
+        "matcher": "",
+        "hooks": [{"type": "command", "command": hook_command, "timeout": 30}],
+    }
+
+    settings = {}
+    if os.path.isfile(settings_path):
+        with open(settings_path, "r") as f:
+            try:
+                settings = json.load(f)
+            except json.JSONDecodeError:
+                settings = {}
+
+    hooks = settings.setdefault("hooks", {})
+    pre_hooks = hooks.setdefault("PreToolUse", [])
+
+    if any("agsec" in str(h) for h in pre_hooks):
+        print("agsec hook already installed for Windsurf.")
+        return
+
+    pre_hooks.append(new_hook)
+
+    _write_json(settings_path, settings)
+    print("agsec hook installed for Windsurf.")
+    print(f"  Config: {settings_path}")
+
+
+def _uninstall_windsurf(project_dir: str):
+    settings_path = os.path.join(project_dir, ".windsurf", "settings.json")
+    _uninstall_settings_hooks(settings_path, "Windsurf")
+
+
+# ---------------------------------------------------------------------------
+# Cline
+# ---------------------------------------------------------------------------
+
+
+def _install_cline(project_dir: str):
+    hooks_dir = os.path.join(project_dir, ".clinerules", "hooks")
+    os.makedirs(hooks_dir, mode=0o700, exist_ok=True)
+
+    script_path = os.path.join(hooks_dir, "agsec-check.sh")
+    agsec_cmd = _find_agsec_bin()
+    policy_dir = _find_policy_dir(project_dir)
+
+    cmd = f"{agsec_cmd} check --format=cline"
+    if policy_dir:
+        cmd += f" --policy-dir {shlex.quote(policy_dir)}"
+
+    if os.path.isfile(script_path):
+        print("agsec hook already installed for Cline.")
+        return
+
+    script = f"""#!/bin/bash
+# agsec firewall hook for Cline
+{cmd}
+"""
+    fd = os.open(script_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o700)
+    with os.fdopen(fd, "w") as f:
+        f.write(script)
+
+    print("agsec hook installed for Cline.")
+    print(f"  Script: {script_path}")
+
+
+def _uninstall_cline(project_dir: str):
+    script_path = os.path.join(project_dir, ".clinerules", "hooks", "agsec-check.sh")
+
+    if not os.path.isfile(script_path):
+        print("agsec is not installed for Cline.")
+        return
+
+    os.unlink(script_path)
+    print("agsec hook removed from Cline.")
+    print(f"  Removed: {script_path}")
+
+
+# ---------------------------------------------------------------------------
+# GitHub Copilot
+# ---------------------------------------------------------------------------
+
+
+def _install_copilot(project_dir: str):
+    hooks_dir = os.path.join(project_dir, ".github", "hooks")
+    os.makedirs(hooks_dir, mode=0o700, exist_ok=True)
+
+    hooks_path = os.path.join(hooks_dir, "pre-tool-use.json")
+    agsec_cmd = _find_agsec_bin()
+    policy_dir = _find_policy_dir(project_dir)
+
+    cmd = f"{agsec_cmd} check --format=copilot"
+    if policy_dir:
+        cmd += f" --policy-dir {shlex.quote(policy_dir)}"
+
+    config = {
+        "version": 1,
+        "hooks": {
+            "preToolUse": [{"type": "command", "bash": cmd, "comment": "agsec firewall"}],
+        },
+    }
+
+    if os.path.isfile(hooks_path):
+        with open(hooks_path, "r") as f:
+            try:
+                existing = json.load(f)
+                for h in existing.get("hooks", {}).get("preToolUse", []):
+                    if "agsec" in h.get("bash", "") or "agsec" in h.get("comment", ""):
+                        print("agsec hook already installed for GitHub Copilot.")
+                        return
+                existing.setdefault("hooks", {}).setdefault("preToolUse", []).append(
+                    config["hooks"]["preToolUse"][0]
+                )
+                config = existing
+            except json.JSONDecodeError:
+                pass
+
+    _write_json(hooks_path, config)
+    print("agsec hook installed for GitHub Copilot.")
+    print(f"  Config: {hooks_path}")
+
+
+def _uninstall_copilot(project_dir: str):
+    hooks_path = os.path.join(project_dir, ".github", "hooks", "pre-tool-use.json")
+
+    if not os.path.isfile(hooks_path):
+        print("agsec is not installed for GitHub Copilot.")
+        return
+
+    with open(hooks_path, "r") as f:
+        try:
+            config = json.load(f)
+        except json.JSONDecodeError:
+            print("Could not read pre-tool-use.json.")
+            return
+
+    pre_hooks = config.get("hooks", {}).get("preToolUse", [])
+    filtered = [h for h in pre_hooks if "agsec" not in h.get("bash", "") and "agsec" not in h.get("comment", "")]
+
+    if len(filtered) == len(pre_hooks):
+        print("agsec is not installed for GitHub Copilot.")
+        return
+
+    config["hooks"]["preToolUse"] = filtered
+    _write_json(hooks_path, config)
+    print("agsec hook removed from GitHub Copilot.")
+    print(f"  Config: {hooks_path}")
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
+
+def _find_policy_dir(project_dir: str):
+    """Find policy directory in project."""
+    for candidate in ("policies", os.path.join(".agsec", "policies")):
+        if os.path.isdir(os.path.join(project_dir, candidate)):
+            return os.path.join(project_dir, candidate)
+    return None
+
+
+def _write_json(path: str, data: dict):
+    """Write JSON with restricted permissions."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump(data, f, indent=2)
+
+
+def _uninstall_json_hooks(hooks_path: str, name: str, hook_key: str):
+    """Remove agsec hooks from a JSON hooks file with a list under hook_key."""
+    if not os.path.isfile(hooks_path):
+        print(f"agsec is not installed for {name}.")
+        return
+
+    with open(hooks_path, "r") as f:
+        try:
+            config = json.load(f)
+        except json.JSONDecodeError:
+            print(f"Could not read {os.path.basename(hooks_path)}.")
+            return
+
+    hooks_list = config.get("hooks", {}).get(hook_key, [])
+    filtered = [h for h in hooks_list if "agsec" not in h.get("command", "")]
+
+    if len(filtered) == len(hooks_list):
+        print(f"agsec is not installed for {name}.")
+        return
+
+    config["hooks"][hook_key] = filtered
+    _write_json(hooks_path, config)
+    print(f"agsec hook removed from {name}.")
+    print(f"  Config: {hooks_path}")
+
+
+def _uninstall_settings_hooks(settings_path: str, name: str):
+    """Remove agsec hooks from a settings.json with PreToolUse structure."""
+    if not os.path.isfile(settings_path):
+        print(f"agsec is not installed for {name}.")
+        return
+
+    with open(settings_path, "r") as f:
+        try:
+            settings = json.load(f)
+        except json.JSONDecodeError:
+            print(f"Could not read {os.path.basename(settings_path)}.")
+            return
+
+    hooks = settings.get("hooks", {})
+    pre_hooks = hooks.get("PreToolUse", [])
+    filtered = [h for h in pre_hooks if "agsec" not in str(h)]
+
+    if len(filtered) == len(pre_hooks):
+        print(f"agsec is not installed for {name}.")
+        return
+
+    if filtered:
+        hooks["PreToolUse"] = filtered
+    else:
+        hooks.pop("PreToolUse", None)
+
+    if hooks:
+        settings["hooks"] = hooks
+    else:
+        settings.pop("hooks", None)
+
+    _write_json(settings_path, settings)
+    print(f"agsec hook removed from {name}.")
+    print(f"  Config: {settings_path}")
