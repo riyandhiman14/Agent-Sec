@@ -60,7 +60,7 @@ def _install_claude_code(project_dir: str):
             policy_dir = os.path.join(project_dir, candidate)
             break
 
-    hook_command = f"{agsec_cmd} check --format=claude-code"
+    hook_command = f"{agsec_cmd} check --format=claude-code --agent claude-code"
     if policy_dir:
         hook_command += f" --policy-dir {shlex.quote(policy_dir)}"
 
@@ -119,7 +119,7 @@ def _install_codex(project_dir: str):
 
     hooks_path = os.path.join(codex_dir, "hooks.json")
     agsec_cmd = _find_agsec_bin()
-    hook_command = f"{agsec_cmd} check --format=codex"
+    hook_command = f"{agsec_cmd} check --format=codex --agent codex"
 
     hooks_config = {
         "hooks": [
@@ -263,7 +263,7 @@ def _install_cursor(project_dir: str):
     agsec_cmd = _find_agsec_bin()
     policy_dir = _find_policy_dir(project_dir)
 
-    hook_command = f"{agsec_cmd} check --format=cursor"
+    hook_command = f"{agsec_cmd} check --format=cursor --agent cursor"
     if policy_dir:
         hook_command += f" --policy-dir {shlex.quote(policy_dir)}"
 
@@ -309,7 +309,7 @@ def _install_windsurf(project_dir: str):
     agsec_cmd = _find_agsec_bin()
     policy_dir = _find_policy_dir(project_dir)
 
-    hook_command = f"{agsec_cmd} check --format=windsurf"
+    hook_command = f"{agsec_cmd} check --format=windsurf --agent windsurf"
     if policy_dir:
         hook_command += f" --policy-dir {shlex.quote(policy_dir)}"
 
@@ -358,7 +358,7 @@ def _install_cline(project_dir: str):
     agsec_cmd = _find_agsec_bin()
     policy_dir = _find_policy_dir(project_dir)
 
-    cmd = f"{agsec_cmd} check --format=cline"
+    cmd = f"{agsec_cmd} check --format=cline --agent cline"
     if policy_dir:
         cmd += f" --policy-dir {shlex.quote(policy_dir)}"
 
@@ -409,7 +409,7 @@ def _install_copilot(project_dir: str):
     agsec_cmd = _find_agsec_bin()
     policy_dir = _find_policy_dir(project_dir)
 
-    cmd = f"{agsec_cmd} check --format=copilot"
+    cmd = f"{agsec_cmd} check --format=copilot --agent copilot"
     if policy_dir:
         cmd += f" --policy-dir {shlex.quote(policy_dir)}"
 

@@ -11,6 +11,7 @@ logger = logging.getLogger("agsec")
 from ..audit import AuditStore
 from ..exceptions import PolicyViolationError
 from ..policy import PolicyEngine
+from ..policy.engine import LayeredPolicyEngine
 from ..types import ActionExecutionResult, PolicyResult, PolicyStatus
 
 
@@ -63,26 +64,37 @@ class PolicyChecker:
         self._audit_enabled = audit
 
     def _ensure_loaded(self) -> None:
-        """Lazy-load policies on first check."""
+        """Lazy-load policies on first check. Uses IAM-style layered evaluation."""
         if self._loaded:
             return
 
-        # 1. Project-level policies
+        layered = LayeredPolicyEngine()
+
+        # 1. Project-level policies (like IAM Permission Boundary)
         project_dir = self._policy_dir or _find_project_policy_dir()
         if project_dir:
             try:
-                self.engine.load_from_directory(project_dir)
+                project_engine = PolicyEngine()
+                project_engine.load_from_directory(project_dir)
+                layered.add_layer("project", project_engine)
             except (ValueError, FileNotFoundError) as e:
                 logger.warning("Failed to load project policies from %s: %s", project_dir, e)
 
-        # 2. Agent-level overlay
+        # 2. Agent-level policies (like IAM Identity Policy — can only restrict)
+        # Agent layer defaults to ALLOW so it only adds restrictions (explicit denies),
+        # not requiring its own allow list for every action.
         if self._agent:
             agent_dir = _get_agent_policy_dir(self._agent)
             if agent_dir:
                 try:
-                    self.engine.load_from_directory(agent_dir)
+                    agent_engine = PolicyEngine()
+                    agent_engine.load_from_directory(agent_dir)
+                    agent_engine._default = PolicyStatus.ALLOW
+                    layered.add_layer("agent", agent_engine)
                 except (ValueError, FileNotFoundError) as e:
                     logger.warning("Failed to load agent policies from %s: %s", agent_dir, e)
+
+        self.engine = layered
 
         # 3. Audit store
         if self._audit_enabled:
@@ -108,6 +120,9 @@ class PolicyChecker:
     ) -> PolicyResult:
         """Check policy. Returns PolicyResult."""
         self._ensure_loaded()
+        context = dict(context or {})
+        if self._agent:
+            context.setdefault("agent", self._agent)
         result = self.engine.evaluate(action, params, context)
         self._log(action, params, result, context)
         return result
@@ -163,31 +178,48 @@ class PolicyChecker:
 
 
 def build_engine(rules, policy_dir=None, agent=None):
-    """Build a PolicyEngine from inline rules + optional YAML policies."""
+    """Build a layered policy engine from inline rules + optional YAML policies.
+
+    Layers (IAM-style, all must allow):
+      1. project — YAML policies from policy_dir
+      2. inline — rules passed via code (allow/deny/review)
+      3. agent — per-agent policies from ~/.agsec/agents/{agent}/
+    """
     from .conditions import compile_rules
 
-    engine = PolicyEngine(default="deny")
-    engine._iam_loaded = True
+    layered = LayeredPolicyEngine()
 
-    if rules:
-        for stmt in compile_rules(rules):
-            engine.add_statement(stmt)
-
+    # Project layer (like IAM Permission Boundary)
     if policy_dir:
         try:
-            engine.load_from_directory(policy_dir)
+            project_engine = PolicyEngine()
+            project_engine.load_from_directory(policy_dir)
+            layered.add_layer("project", project_engine)
         except (ValueError, FileNotFoundError):
             pass
 
+    # Inline rules layer (like IAM Identity Policy)
+    inline_engine = PolicyEngine(default="deny")
+    inline_engine._iam_loaded = True
+    if rules:
+        for stmt in compile_rules(rules):
+            inline_engine.add_statement(stmt)
+    layered.add_layer("inline", inline_engine)
+
+    # Agent layer (can only restrict, never widen)
+    # Defaults to ALLOW so it only adds restrictions via explicit deny/review.
     if agent:
         agent_dir = _get_agent_policy_dir(agent)
         if agent_dir:
             try:
-                engine.load_from_directory(agent_dir)
+                agent_engine = PolicyEngine()
+                agent_engine.load_from_directory(agent_dir)
+                agent_engine._default = PolicyStatus.ALLOW
+                layered.add_layer("agent", agent_engine)
             except (ValueError, FileNotFoundError):
                 pass
 
-    return engine
+    return layered
 
 
 def check_tool(engine, name, arguments):
