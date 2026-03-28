@@ -13,7 +13,7 @@ def main():
     )
     subparsers = parser.add_subparsers(dest="command")
 
-    from .commands import audit, check, init, install, mode, policy, validate
+    from .commands import analyze, audit, check, init, install, mode, policy, validate
 
     init.register(subparsers)
     check.register(subparsers)
@@ -22,6 +22,7 @@ def main():
     install.register_uninstall(subparsers)
     policy.register(subparsers)
     audit.register(subparsers)
+    analyze.register(subparsers)
     mode.register_observe(subparsers)
     mode.register_enforce(subparsers)
     mode.register_halt(subparsers)

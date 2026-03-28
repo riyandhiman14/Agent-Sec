@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from ..types import ActionExecutionResult
@@ -109,6 +109,23 @@ class AuditStore:
         if stats is None:
             return {"total_executions": 0, "allowed": 0, "blocked": 0, "reviewed": 0, "errors": 0}
         return dict(stats)
+
+    def get_executions_since(
+        self, hours: Optional[float] = None, days: Optional[float] = None
+    ) -> List[Dict[str, Any]]:
+        """Get all executions since a time offset. If neither hours nor days given, returns all."""
+        query = "SELECT * FROM executions"
+        params: List[Any] = []
+
+        if hours is not None or days is not None:
+            total_hours = (hours or 0) + (days or 0) * 24
+            since = (datetime.utcnow() - timedelta(hours=total_hours)).isoformat()
+            query += " WHERE timestamp >= ?"
+            params.append(since)
+
+        query += " ORDER BY timestamp DESC LIMIT 100000"
+        rows = self.conn.execute(query, params).fetchall()
+        return [dict(row) for row in rows]
 
     def export_to_json(self, file_path: str) -> None:
         executions = self.get_executions(limit=10000)
