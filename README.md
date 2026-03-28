@@ -12,7 +12,7 @@ Agent wants to act  -->  agsec evaluates policy  -->  allow / block / review  --
 
 ## Why
 
-AI agents get real access to real systems. agsec gives you one policy layer across all of them — declarative YAML policies, runtime enforcement, full audit trail. Like AWS IAM, but for what agents can do.
+AI agents get real access to real systems. agsec gives you one policy layer across all of them — declarative YAML policies, runtime enforcement, full audit trail. Like AWS IAM, but for what agents can do. Addresses [7 of 10 OWASP Agentic Top 10](docs/owasp-mapping.md) risks.
 
 ## Quick Start
 
@@ -39,15 +39,15 @@ agsec enforce                  # start blocking when ready
 ### System Agents (hook-based enforcement)
 
 ```bash
-agsec install claude-code      # Claude Code + Claude Cowork
+agsec install claude-code      # Claude Code + Claude Cowork (tested)
 agsec install codex            # OpenAI Codex
 agsec install cursor           # Cursor
 agsec install windsurf         # Windsurf (Codeium)
 agsec install cline            # Cline
-agsec install copilot          # GitHub Copilot
+agsec install copilot          # GitHub Copilot (project + user level)
 ```
 
-Claude Code and Claude Cowork are fully tested. Other integrations are functional but community testing is welcome — please report issues.
+Claude Code and Claude Cowork are fully tested. Codex, Cursor, Windsurf, and Cline are functional but need community testing. VS Code Copilot also works with `agsec install claude-code` since it reads `.claude/settings.json`. Please report issues.
 
 ### Python SDKs (client wrapper)
 
@@ -128,6 +128,8 @@ agsec validate                 # check for errors
 agsec audit [--stats]          # view logs
 agsec observe                  # switch to observe mode
 agsec enforce                  # switch to enforce mode
+agsec halt                     # kill switch: block ALL actions immediately
+agsec resume                   # restore from halt
 ```
 
 ## Documentation
@@ -137,6 +139,7 @@ agsec enforce                  # switch to enforce mode
 - [Integrations](docs/integrations.md) — Claude Code/Cowork, Codex, Cursor, Windsurf, Cline, Copilot, LangChain, OpenAI, Anthropic
 - [SDK Usage](docs/sdk.md) — programmatic Python API
 - [Observe Mode](docs/observe-mode.md) — audit first, enforce later
+- [OWASP Mapping](docs/owasp-mapping.md) — compliance with OWASP Agentic Top 10
 
 ## Contributing
 

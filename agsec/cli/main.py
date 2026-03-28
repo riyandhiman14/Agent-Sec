@@ -24,6 +24,8 @@ def main():
     audit.register(subparsers)
     mode.register_observe(subparsers)
     mode.register_enforce(subparsers)
+    mode.register_halt(subparsers)
+    mode.register_resume(subparsers)
 
     args = parser.parse_args()
     if not args.command:

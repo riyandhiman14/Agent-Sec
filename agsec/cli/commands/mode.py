@@ -37,3 +37,34 @@ def run_enforce(args):
     print("Switched to ENFORCE mode.")
     print("  Policies are now enforced. Blocked actions will be denied.")
     print(f"  Config: {config_path}")
+
+
+def register_halt(subparsers):
+    p = subparsers.add_parser("halt", help="Kill switch: immediately block ALL agent actions")
+    p.set_defaults(func=run_halt)
+
+
+def register_resume(subparsers):
+    p = subparsers.add_parser("resume", help="Resume from halt: restore previous mode")
+    p.set_defaults(func=run_resume)
+
+
+def run_halt(args):
+    current = load_mode()
+    if current == "halt":
+        print("Already HALTED. All actions are blocked.")
+        return
+    config_path = set_mode("halt")
+    print("HALTED. All agent actions are now blocked.")
+    print("  Run 'agsec resume' to restore normal operation.")
+    print(f"  Config: {config_path}")
+
+
+def run_resume(args):
+    current = load_mode()
+    if current != "halt":
+        print(f"Not halted. Current mode: {current.upper()}")
+        return
+    config_path = set_mode("enforce")
+    print("Resumed. Switched back to ENFORCE mode.")
+    print(f"  Config: {config_path}")

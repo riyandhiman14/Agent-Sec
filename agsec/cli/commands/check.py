@@ -43,7 +43,17 @@ def run(args):
 
     # Map tool call to agsec action
     if "tool_name" in raw:
+        # Claude Code / Windsurf / Cline format
         action, params = map_tool_to_action(raw["tool_name"], raw.get("tool_input", {}))
+    elif "toolName" in raw:
+        # GitHub Copilot format (toolArgs is a JSON string)
+        tool_args = raw.get("toolArgs", "{}")
+        if isinstance(tool_args, str):
+            try:
+                tool_args = json.loads(tool_args)
+            except (json.JSONDecodeError, TypeError):
+                tool_args = {}
+        action, params = map_tool_to_action(raw["toolName"], tool_args)
     else:
         action, params = raw.get("action", "unknown"), raw.get("params", {})
 
@@ -95,6 +105,19 @@ def run(args):
     except Exception:
         pass
 
+    # Halt mode: block everything immediately
+    if mode == "halt":
+        reason_halt = "[agsec] HALTED: All agent actions are blocked. Run 'agsec resume' to restore."
+        if args.format in ("claude-code", "windsurf"):
+            print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason_halt}}))
+        elif args.format == "cline":
+            print(json.dumps({"cancel": True, "errorMessage": reason_halt}))
+        elif args.format in ("codex", "cursor", "copilot"):
+            print(json.dumps({"deny": True, "reason": reason_halt}))
+        else:
+            print(json.dumps({"blocked": True, "status": "halt", "reason": reason_halt}), file=sys.stderr)
+        sys.exit(2 if args.format != "cline" else 0)
+
     # Observe mode: log everything but always allow
     if mode == "observe":
         sys.exit(0)
@@ -133,7 +156,7 @@ def run(args):
 
     elif args.format == "copilot":
         print(json.dumps({"permissionDecision": "deny", "permissionDecisionReason": reason_full}))
-        sys.exit(2)
+        sys.exit(0)  # Copilot reads stdout JSON, exit 0 for parsed output
 
     else:  # generic
         msg = {"blocked": True, "status": result.status.value, "reason": reason, "sid": sid}
