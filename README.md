@@ -3,7 +3,6 @@
 [![PyPI version](https://badge.fury.io/py/agsec.svg)](https://pypi.org/project/agsec/)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![OWASP Agentic Top 10](https://img.shields.io/badge/OWASP%20Agentic%20Top%2010-7%2F10%20covered-orange)](docs/owasp-mapping.md)
 
 ---
 
