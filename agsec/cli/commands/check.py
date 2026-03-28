@@ -14,8 +14,8 @@ from ..mapping import map_tool_to_action
 
 def register(subparsers):
     p = subparsers.add_parser("check", help="Check an action against policies (used by hooks)")
-    p.add_argument("--format", choices=["generic", "claude-code", "codex"], default="generic",
-                   help="Output format (default: generic)")
+    p.add_argument("--format", choices=["generic", "claude-code", "codex", "cursor", "windsurf", "cline", "copilot"],
+                   default="generic", help="Output format (default: generic)")
     p.add_argument("--policy-dir", help="Override policy directory")
     p.add_argument("--action", help="Action name (if not reading from stdin)")
     p.add_argument("--params", help="JSON params (if not reading from stdin)")
@@ -106,23 +106,33 @@ def run(args):
     reason = result.reason or "Blocked by policy"
     sid = result.metadata.get("sid", "")
 
-    if args.format == "claude-code":
+    reason_full = f"[agsec] {reason}" + (f" (sid: {sid})" if sid else "")
+
+    if args.format in ("claude-code", "windsurf"):
         output = {
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "deny",
-                "permissionDecisionReason": f"[agsec] {reason}" + (f" (sid: {sid})" if sid else ""),
+                "permissionDecisionReason": reason_full,
             }
         }
         print(json.dumps(output))
         sys.exit(2)
 
     elif args.format == "codex":
-        output = {
-            "decision": "block",
-            "reason": f"[agsec] {reason}" + (f" (sid: {sid})" if sid else ""),
-        }
-        print(json.dumps(output))
+        print(json.dumps({"decision": "block", "reason": reason_full}))
+        sys.exit(2)
+
+    elif args.format == "cursor":
+        print(json.dumps({"deny": True, "reason": reason_full}))
+        sys.exit(2)
+
+    elif args.format == "cline":
+        print(json.dumps({"cancel": True, "errorMessage": reason_full}))
+        sys.exit(0)  # Cline uses exit 0 with cancel:true in JSON
+
+    elif args.format == "copilot":
+        print(json.dumps({"permissionDecision": "deny", "permissionDecisionReason": reason_full}))
         sys.exit(2)
 
     else:  # generic

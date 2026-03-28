@@ -34,16 +34,26 @@ agsec audit --stats            # see what would be blocked
 agsec enforce                  # start blocking when ready
 ```
 
-## Integrations
+## Supported Platforms
 
-### Claude Code / Codex (hooks)
+### System Agents (hook-based enforcement)
 
 ```bash
-agsec install claude-code
-agsec install codex
+agsec install claude-code      # Claude Code + Claude Cowork
+agsec install codex            # OpenAI Codex
+agsec install cursor           # Cursor
+agsec install windsurf         # Windsurf (Codeium)
+agsec install cline            # Cline
+agsec install copilot          # GitHub Copilot
 ```
 
-### LangChain (one line)
+Claude Code and Claude Cowork are fully tested. Other integrations are functional but community testing is welcome — please report issues.
+
+### Python SDKs (client wrapper)
+
+### Frameworks (tool wrapper)
+
+**LangChain:**
 
 ```python
 from agsec.integrations.langchain import guard, allow, deny, review, param
@@ -56,7 +66,7 @@ agent = create_react_agent(llm, guard(
 ))
 ```
 
-### OpenAI / Anthropic / OpenRouter (one line)
+**OpenAI / Anthropic / OpenRouter:**
 
 ```python
 from agsec.integrations.openai import protect, deny, param
@@ -68,7 +78,7 @@ client = protect(OpenAI(),
 # Works with OpenRouter, Groq, Together — anything OpenAI-compatible
 ```
 
-### Any Python function
+**Any Python function:**
 
 ```python
 from agsec import guard
@@ -109,8 +119,8 @@ Deny always wins. Same evaluation order as AWS IAM.
 
 ```bash
 agsec init [--observe]         # scaffold policies
-agsec install claude-code      # activate for Claude Code
-agsec install codex            # activate for Codex
+agsec install <platform>       # activate (claude-code, codex, cursor, windsurf, cline, copilot)
+agsec uninstall <platform>     # deactivate
 agsec policy list              # see all rules
 agsec policy add               # add a rule (interactive)
 agsec policy remove <sid>      # remove a rule
@@ -124,7 +134,7 @@ agsec enforce                  # switch to enforce mode
 
 - [Policy Format](docs/policies.md) — schema, operators, conditions, examples
 - [CLI Reference](docs/cli.md) — all commands in detail
-- [Integrations](docs/integrations.md) — LangChain, OpenAI, Anthropic, Claude Code, Codex
+- [Integrations](docs/integrations.md) — Claude Code/Cowork, Codex, Cursor, Windsurf, Cline, Copilot, LangChain, OpenAI, Anthropic
 - [SDK Usage](docs/sdk.md) — programmatic Python API
 - [Observe Mode](docs/observe-mode.md) — audit first, enforce later
 
