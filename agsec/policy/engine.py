@@ -417,3 +417,99 @@ class PolicyEngine:
                 issues.append(f"{label}: missing 'status'")
 
         return issues
+
+
+class LayeredPolicyEngine:
+    """IAM-style layered policy evaluation.
+
+    Each layer is a gate evaluated independently. For an action to be allowed,
+    ALL layers must independently allow it. Explicit deny at ANY layer is final.
+
+    This mirrors AWS IAM evaluation:
+      - BLOCK at any layer → BLOCK (explicit deny, nothing overrides)
+      - REVIEW at any layer → REVIEW (most restrictive non-deny wins)
+      - ALLOW only if all layers allow (intersection)
+      - No layers → implicit DENY
+    """
+
+    def __init__(self) -> None:
+        self._layers: List[tuple] = []  # List of (name, PolicyEngine)
+
+    def add_layer(self, name: str, engine: "PolicyEngine") -> None:
+        """Add a policy layer. Layers are evaluated in order added."""
+        self._layers.append((name, engine))
+
+    def load_from_directory(self, directory: str, layer_name: Optional[str] = None, default: str = "allow") -> None:
+        """Convenience: load a directory as a new layer.
+
+        Args:
+            directory: Path to policy YAML directory
+            layer_name: Name for this layer (auto-generated if omitted)
+            default: Default for unmatched actions in this layer ("allow" or "deny").
+                     Use "allow" for overlay layers that only add restrictions.
+        """
+        name = layer_name or f"layer_{len(self._layers)}"
+        engine = PolicyEngine()
+        engine.load_from_directory(directory)
+        engine._default = _EFFECT_MAP.get(default, PolicyStatus.ALLOW)
+        self.add_layer(name, engine)
+
+    @property
+    def layers(self) -> List[tuple]:
+        """Return list of (name, engine) tuples."""
+        return list(self._layers)
+
+    def evaluate(
+        self, action: str, params: Dict[str, Any], context: Optional[Dict[str, Any]] = None
+    ) -> PolicyResult:
+        """Evaluate action through all layers. Most restrictive result wins.
+
+        - BLOCK at any layer = BLOCK (immediate, final)
+        - REVIEW at any layer = REVIEW
+        - ALLOW only if every layer allows
+        - No layers = implicit DENY
+        """
+        context = context or {}
+
+        if not self._layers:
+            return PolicyResult(
+                status=PolicyStatus.ALLOW,
+                reason="No policy layers configured",
+                metadata={"matched_by": "no_layers"},
+            )
+
+        worst_result: Optional[PolicyResult] = None
+        worst_layer: Optional[str] = None
+
+        for layer_name, engine in self._layers:
+            result = engine.evaluate(action, params, context)
+
+            # Explicit deny at any layer = immediate deny
+            if result.status == PolicyStatus.BLOCK:
+                result.metadata["layer"] = layer_name
+                return result
+
+            # Track most restrictive non-deny result
+            if worst_result is None:
+                worst_result = result
+                worst_layer = layer_name
+            elif result.status == PolicyStatus.REVIEW and worst_result.status == PolicyStatus.ALLOW:
+                worst_result = result
+                worst_layer = layer_name
+
+        if worst_result is not None:
+            worst_result.metadata["layer"] = worst_layer
+            return worst_result
+
+        # Should not reach here, but fail safe
+        return PolicyResult(
+            status=PolicyStatus.BLOCK,
+            reason="No policy result",
+            metadata={"matched_by": "no_result"},
+        )
+
+    def dry_run(
+        self, action: str, params: Dict[str, Any], context: Optional[Dict[str, Any]] = None
+    ) -> PolicyResult:
+        """Evaluate without executing. Same as evaluate, clearly named for intent."""
+        return self.evaluate(action, params, context)

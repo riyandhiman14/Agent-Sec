@@ -16,51 +16,15 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from ..policy import PolicyEngine
 from ..types import PolicyStatus
 from .conditions import (  # noqa: F401 — re-export
     ToolRule,
     allow,
-    compile_rules,
     deny,
     param,
     review,
 )
-from ._base import _get_agent_policy_dir
-
-
-def _build_engine(rules, policy_dir=None, agent=None):
-    """Build a PolicyEngine from inline rules + optional YAML."""
-    engine = PolicyEngine(default="deny")
-    engine._iam_loaded = True
-
-    if rules:
-        for stmt in compile_rules(rules):
-            engine.add_statement(stmt)
-
-    if policy_dir:
-        try:
-            engine.load_from_directory(policy_dir)
-        except (ValueError, FileNotFoundError):
-            pass
-
-    if agent:
-        agent_dir = _get_agent_policy_dir(agent)
-        if agent_dir:
-            try:
-                engine.load_from_directory(agent_dir)
-            except (ValueError, FileNotFoundError):
-                pass
-
-    return engine
-
-
-def _check_tool_use(engine, name, input_params):
-    """Check a single tool_use block against policies."""
-    action = f"tool.{name}"
-    params = input_params if isinstance(input_params, dict) else {}
-    result = engine.evaluate(action, params)
-    return result.status, result.reason, result.metadata
+from ._base import build_engine, check_tool
 
 
 def protect(
@@ -86,7 +50,7 @@ def protect(
             deny("payment").when(param("amount") > 10000),
         )
     """
-    engine = _build_engine(list(rules), policy_dir, agent)
+    engine = build_engine(list(rules), policy_dir, agent)
     original_create = client.messages.create
 
     def wrapped_create(*args, **kwargs):
@@ -109,9 +73,9 @@ def protect(
         for block in response.content:
             # Anthropic tool_use blocks have type="tool_use"
             if getattr(block, "type", None) == "tool_use":
-                name = block.name
+                name = getattr(block, "name", "unknown")
                 input_params = getattr(block, "input", {})
-                status, reason, metadata = _check_tool_use(engine, name, input_params)
+                status, reason, metadata = check_tool(engine, name, input_params)
 
                 if status == PolicyStatus.ALLOW:
                     allowed_content.append(block)

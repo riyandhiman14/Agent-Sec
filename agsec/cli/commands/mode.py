@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ..config import load_mode, set_mode
+from ..config import get_previous_mode, load_mode, set_mode
 
 
 def register_observe(subparsers):
@@ -36,4 +36,36 @@ def run_enforce(args):
     config_path = set_mode("enforce")
     print("Switched to ENFORCE mode.")
     print("  Policies are now enforced. Blocked actions will be denied.")
+    print(f"  Config: {config_path}")
+
+
+def register_halt(subparsers):
+    p = subparsers.add_parser("halt", help="Kill switch: immediately block ALL agent actions")
+    p.set_defaults(func=run_halt)
+
+
+def register_resume(subparsers):
+    p = subparsers.add_parser("resume", help="Resume from halt: restore previous mode")
+    p.set_defaults(func=run_resume)
+
+
+def run_halt(args):
+    current = load_mode()
+    if current == "halt":
+        print("Already HALTED. All actions are blocked.")
+        return
+    config_path = set_mode("halt", store_previous=True)
+    print("HALTED. All agent actions are now blocked.")
+    print(f"  Previous mode ({current.upper()}) saved. Run 'agsec resume' to restore.")
+    print(f"  Config: {config_path}")
+
+
+def run_resume(args):
+    current = load_mode()
+    if current != "halt":
+        print(f"Not halted. Current mode: {current.upper()}")
+        return
+    previous = get_previous_mode()
+    config_path = set_mode(previous)
+    print(f"Resumed. Restored to {previous.upper()} mode.")
     print(f"  Config: {config_path}")

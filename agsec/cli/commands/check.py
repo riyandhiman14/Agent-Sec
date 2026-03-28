@@ -20,6 +20,7 @@ def register(subparsers):
     p.add_argument("--action", help="Action name (if not reading from stdin)")
     p.add_argument("--params", help="JSON params (if not reading from stdin)")
     p.add_argument("--strict", action="store_true", help="Fail closed if no policies found (block all)")
+    p.add_argument("--agent", help="Agent identity (e.g. claude-code, copilot)")
     p.set_defaults(func=run)
 
 
@@ -43,7 +44,17 @@ def run(args):
 
     # Map tool call to agsec action
     if "tool_name" in raw:
+        # Claude Code / Windsurf / Cline format
         action, params = map_tool_to_action(raw["tool_name"], raw.get("tool_input", {}))
+    elif "toolName" in raw:
+        # GitHub Copilot format (toolArgs is a JSON string)
+        tool_args = raw.get("toolArgs", "{}")
+        if isinstance(tool_args, str):
+            try:
+                tool_args = json.loads(tool_args)
+            except (json.JSONDecodeError, TypeError):
+                tool_args = {}
+        action, params = map_tool_to_action(raw["toolName"], tool_args)
     else:
         action, params = raw.get("action", "unknown"), raw.get("params", {})
 
@@ -59,6 +70,11 @@ def run(args):
         if key in raw:
             context[key] = raw[key]
 
+    # Agent identity (from --agent flag)
+    agent_name = getattr(args, "agent", None)
+    if agent_name:
+        context["agent"] = agent_name
+
     # Find and load policies
     try:
         policy_dir = args.policy_dir or find_policy_dir()
@@ -70,9 +86,17 @@ def run(args):
         print('{"warning": "No agsec policies found. Run agsec init."}', file=sys.stderr)
         sys.exit(0)
 
-    engine = PolicyEngine()
+    # Build layered engine: project policies + optional agent overlay
+    from ...policy.engine import LayeredPolicyEngine
+    from ...integrations._base import _get_agent_policy_dir
+
+    layered = LayeredPolicyEngine()
+
+    # Project layer
+    project_engine = PolicyEngine()
     try:
-        engine.load_from_directory(policy_dir)
+        project_engine.load_from_directory(policy_dir)
+        layered.add_layer("project", project_engine)
     except (ValueError, FileNotFoundError):
         if getattr(args, "strict", False):
             _exit_error(args.format, "Failed to load policies. Blocking all actions.", 1)
@@ -80,8 +104,20 @@ def run(args):
         print('{"warning": "Failed to load policies."}', file=sys.stderr)
         sys.exit(0)
 
+    # Agent layer (only adds restrictions)
+    if agent_name:
+        agent_dir = _get_agent_policy_dir(agent_name)
+        if agent_dir:
+            try:
+                agent_engine = PolicyEngine()
+                agent_engine.load_from_directory(agent_dir)
+                agent_engine._default = PolicyStatus.ALLOW
+                layered.add_layer("agent", agent_engine)
+            except (ValueError, FileNotFoundError):
+                pass
+
     # Evaluate
-    result = engine.evaluate(action, params, context)
+    result = layered.evaluate(action, params, context)
 
     # Check mode (observe vs enforce)
     mode = load_mode()
@@ -94,6 +130,19 @@ def run(args):
         audit.log_execution(exec_result, context)
     except Exception:
         pass
+
+    # Halt mode: block everything immediately
+    if mode == "halt":
+        reason_halt = "[agsec] HALTED: All agent actions are blocked. Run 'agsec resume' to restore."
+        if args.format in ("claude-code", "windsurf"):
+            print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason_halt}}))
+        elif args.format == "cline":
+            print(json.dumps({"cancel": True, "errorMessage": reason_halt}))
+        elif args.format in ("codex", "cursor", "copilot"):
+            print(json.dumps({"deny": True, "reason": reason_halt}))
+        else:
+            print(json.dumps({"blocked": True, "status": "halt", "reason": reason_halt}), file=sys.stderr)
+        sys.exit(2 if args.format != "cline" else 0)
 
     # Observe mode: log everything but always allow
     if mode == "observe":
@@ -133,7 +182,7 @@ def run(args):
 
     elif args.format == "copilot":
         print(json.dumps({"permissionDecision": "deny", "permissionDecisionReason": reason_full}))
-        sys.exit(2)
+        sys.exit(0)  # Copilot reads stdout JSON, exit 0 for parsed output
 
     else:  # generic
         msg = {"blocked": True, "status": result.status.value, "reason": reason, "sid": sid}

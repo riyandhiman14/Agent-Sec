@@ -20,60 +20,15 @@ from __future__ import annotations
 import json
 from typing import Any, Optional
 
-from ..policy import PolicyEngine
 from ..types import PolicyStatus
 from .conditions import (  # noqa: F401 — re-export
     ToolRule,
     allow,
-    compile_rules,
     deny,
     param,
     review,
 )
-from ._base import PolicyChecker, _get_agent_policy_dir
-
-
-def _build_engine(rules, policy_dir=None, agent=None):
-    """Build a PolicyEngine from inline rules + optional YAML."""
-    engine = PolicyEngine(default="deny")
-    engine._iam_loaded = True
-
-    if rules:
-        for stmt in compile_rules(rules):
-            engine.add_statement(stmt)
-
-    if policy_dir:
-        try:
-            engine.load_from_directory(policy_dir)
-        except (ValueError, FileNotFoundError):
-            pass
-
-    if agent:
-        agent_dir = _get_agent_policy_dir(agent)
-        if agent_dir:
-            try:
-                engine.load_from_directory(agent_dir)
-            except (ValueError, FileNotFoundError):
-                pass
-
-    return engine
-
-
-def _check_tool_call(engine, name, arguments):
-    """Check a single tool call against policies. Returns (status, reason)."""
-    action = f"tool.{name}"
-    params = {}
-    if isinstance(arguments, str):
-        try:
-            params = json.loads(arguments)
-        except (json.JSONDecodeError, TypeError):
-            # Malformed arguments — block by default (fail safe)
-            return PolicyStatus.BLOCK, "Tool arguments could not be parsed", {"matched_by": "parse_error"}
-    elif isinstance(arguments, dict):
-        params = arguments
-
-    result = engine.evaluate(action, params)
-    return result.status, result.reason, result.metadata
+from ._base import build_engine, check_tool
 
 
 def protect(
@@ -102,7 +57,7 @@ def protect(
             deny("payment").when(param("amount") > 10000),
         )
     """
-    engine = _build_engine(list(rules), policy_dir, agent)
+    engine = build_engine(list(rules), policy_dir, agent)
     original_create = client.chat.completions.create
 
     def wrapped_create(*args, **kwargs):
@@ -129,9 +84,20 @@ def protect(
         blocked = []
 
         for tc in choice.message.tool_calls:
-            func_name = tc.function.name
-            func_args = tc.function.arguments
-            status, reason, metadata = _check_tool_call(engine, func_name, func_args)
+            try:
+                func_name = tc.function.name
+                func_args = tc.function.arguments
+            except AttributeError:
+                # Malformed tool call — block safely
+                blocked.append({
+                    "tool_call_id": getattr(tc, "id", "unknown"),
+                    "name": "unknown",
+                    "status": "block",
+                    "reason": "Malformed tool call",
+                    "sid": "",
+                })
+                continue
+            status, reason, metadata = check_tool(engine, func_name, func_args)
 
             if status == PolicyStatus.ALLOW:
                 allowed_calls.append(tc)

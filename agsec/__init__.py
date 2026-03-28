@@ -39,13 +39,14 @@ from .exceptions import (
     TypeValidationError,
     ValidationError,
 )
-from .policy import PolicyEngine
+from .policy import LayeredPolicyEngine, PolicyEngine
 from .registry import ActionRegistry
 from .types import PolicyResult, PolicyStatus
 
 __all__ = [
     "ControlLayer",
     "PolicyEngine",
+    "LayeredPolicyEngine",
     "PolicyResult",
     "PolicyStatus",
     "ActionRegistry",

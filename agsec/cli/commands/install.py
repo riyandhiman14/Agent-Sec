@@ -60,7 +60,7 @@ def _install_claude_code(project_dir: str):
             policy_dir = os.path.join(project_dir, candidate)
             break
 
-    hook_command = f"{agsec_cmd} check --format=claude-code"
+    hook_command = f"{agsec_cmd} check --format=claude-code --agent claude-code"
     if policy_dir:
         hook_command += f" --policy-dir {shlex.quote(policy_dir)}"
 
@@ -119,7 +119,7 @@ def _install_codex(project_dir: str):
 
     hooks_path = os.path.join(codex_dir, "hooks.json")
     agsec_cmd = _find_agsec_bin()
-    hook_command = f"{agsec_cmd} check --format=codex"
+    hook_command = f"{agsec_cmd} check --format=codex --agent codex"
 
     hooks_config = {
         "hooks": [
@@ -263,7 +263,7 @@ def _install_cursor(project_dir: str):
     agsec_cmd = _find_agsec_bin()
     policy_dir = _find_policy_dir(project_dir)
 
-    hook_command = f"{agsec_cmd} check --format=cursor"
+    hook_command = f"{agsec_cmd} check --format=cursor --agent cursor"
     if policy_dir:
         hook_command += f" --policy-dir {shlex.quote(policy_dir)}"
 
@@ -309,7 +309,7 @@ def _install_windsurf(project_dir: str):
     agsec_cmd = _find_agsec_bin()
     policy_dir = _find_policy_dir(project_dir)
 
-    hook_command = f"{agsec_cmd} check --format=windsurf"
+    hook_command = f"{agsec_cmd} check --format=windsurf --agent windsurf"
     if policy_dir:
         hook_command += f" --policy-dir {shlex.quote(policy_dir)}"
 
@@ -358,7 +358,7 @@ def _install_cline(project_dir: str):
     agsec_cmd = _find_agsec_bin()
     policy_dir = _find_policy_dir(project_dir)
 
-    cmd = f"{agsec_cmd} check --format=cline"
+    cmd = f"{agsec_cmd} check --format=cline --agent cline"
     if policy_dir:
         cmd += f" --policy-dir {shlex.quote(policy_dir)}"
 
@@ -396,69 +396,113 @@ def _uninstall_cline(project_dir: str):
 
 
 def _install_copilot(project_dir: str):
-    hooks_dir = os.path.join(project_dir, ".github", "hooks")
-    os.makedirs(hooks_dir, mode=0o700, exist_ok=True)
+    """Install hooks for GitHub Copilot.
 
-    hooks_path = os.path.join(hooks_dir, "pre-tool-use.json")
+    Two locations:
+    - Project-level: .github/hooks/ (for cloud coding agent, must be committed)
+    - User-level: ~/.copilot/hooks/ (for local VS Code Copilot)
+
+    Note: VS Code Copilot also reads .claude/settings.json, so
+    'agsec install claude-code' already covers local VS Code Copilot.
+    This install is primarily for the cloud coding agent.
+    """
     agsec_cmd = _find_agsec_bin()
     policy_dir = _find_policy_dir(project_dir)
 
-    cmd = f"{agsec_cmd} check --format=copilot"
+    cmd = f"{agsec_cmd} check --format=copilot --agent copilot"
     if policy_dir:
         cmd += f" --policy-dir {shlex.quote(policy_dir)}"
 
-    config = {
-        "version": 1,
-        "hooks": {
-            "preToolUse": [{"type": "command", "bash": cmd, "comment": "agsec firewall"}],
-        },
+    # Install to project .github/hooks/ (for cloud coding agent)
+    project_hooks_dir = os.path.join(project_dir, ".github", "hooks")
+    os.makedirs(project_hooks_dir, mode=0o700, exist_ok=True)
+
+    hooks_path = os.path.join(project_hooks_dir, "hooks.json")
+
+    hook_entry = {
+        "type": "command",
+        "bash": cmd,
+        "timeoutSec": 30,
+        "comment": "agsec firewall",
     }
 
+    config = {"version": 1, "hooks": {}}
     if os.path.isfile(hooks_path):
         with open(hooks_path, "r") as f:
             try:
-                existing = json.load(f)
-                for h in existing.get("hooks", {}).get("preToolUse", []):
-                    if "agsec" in h.get("bash", "") or "agsec" in h.get("comment", ""):
-                        print("agsec hook already installed for GitHub Copilot.")
-                        return
-                existing.setdefault("hooks", {}).setdefault("preToolUse", []).append(
-                    config["hooks"]["preToolUse"][0]
-                )
-                config = existing
+                config = json.load(f)
             except json.JSONDecodeError:
-                pass
+                config = {"version": 1, "hooks": {}}
+
+    hooks = config.setdefault("hooks", {})
+    pre_hooks = hooks.setdefault("preToolUse", [])
+
+    if any("agsec" in str(h.get("bash", "")) for h in pre_hooks):
+        print("agsec hook already installed for GitHub Copilot.")
+        return
+
+    pre_hooks.append(hook_entry)
 
     _write_json(hooks_path, config)
+
+    # Also install to ~/.copilot/hooks/ for local VS Code Copilot
+    user_hooks_dir = os.path.join(os.path.expanduser("~"), ".copilot", "hooks")
+    os.makedirs(user_hooks_dir, mode=0o700, exist_ok=True)
+    user_hooks_path = os.path.join(user_hooks_dir, "hooks.json")
+    _write_json(user_hooks_path, config)
+
     print("agsec hook installed for GitHub Copilot.")
-    print(f"  Config: {hooks_path}")
+    print(f"  Project: {hooks_path} (commit and push for cloud agent)")
+    print(f"  User:    {user_hooks_path} (local VS Code)")
+    print()
+    print("  Note: 'agsec install claude-code' also covers VS Code Copilot")
+    print("  since VS Code reads .claude/settings.json hooks.")
 
 
 def _uninstall_copilot(project_dir: str):
-    hooks_path = os.path.join(project_dir, ".github", "hooks", "pre-tool-use.json")
+    removed = False
 
-    if not os.path.isfile(hooks_path):
+    # Remove from project .github/hooks/
+    project_path = os.path.join(project_dir, ".github", "hooks", "hooks.json")
+    if os.path.isfile(project_path):
+        if _remove_agsec_from_hooks_file(project_path):
+            print(f"  Removed from: {project_path}")
+            removed = True
+
+    # Remove from ~/.copilot/hooks/
+    user_path = os.path.join(os.path.expanduser("~"), ".copilot", "hooks", "hooks.json")
+    if os.path.isfile(user_path):
+        if _remove_agsec_from_hooks_file(user_path):
+            print(f"  Removed from: {user_path}")
+            removed = True
+
+    if removed:
+        print("agsec hook removed from GitHub Copilot.")
+    else:
         print("agsec is not installed for GitHub Copilot.")
-        return
 
-    with open(hooks_path, "r") as f:
+
+def _remove_agsec_from_hooks_file(path: str) -> bool:
+    """Remove agsec hooks from a hooks.json file. Returns True if modified."""
+    with open(path, "r") as f:
         try:
             config = json.load(f)
         except json.JSONDecodeError:
-            print("Could not read pre-tool-use.json.")
-            return
+            return False
 
     pre_hooks = config.get("hooks", {}).get("preToolUse", [])
-    filtered = [h for h in pre_hooks if "agsec" not in h.get("bash", "") and "agsec" not in h.get("comment", "")]
+    filtered = [h for h in pre_hooks if "agsec" not in str(h.get("bash", ""))]
 
     if len(filtered) == len(pre_hooks):
-        print("agsec is not installed for GitHub Copilot.")
-        return
+        return False
 
-    config["hooks"]["preToolUse"] = filtered
-    _write_json(hooks_path, config)
-    print("agsec hook removed from GitHub Copilot.")
-    print(f"  Config: {hooks_path}")
+    if filtered:
+        config["hooks"]["preToolUse"] = filtered
+    else:
+        config.get("hooks", {}).pop("preToolUse", None)
+
+    _write_json(path, config)
+    return True
 
 
 # ---------------------------------------------------------------------------

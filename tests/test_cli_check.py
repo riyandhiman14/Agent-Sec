@@ -12,7 +12,7 @@ def _run_check(stdin_data, policy_dir, fmt="generic", extra_args=None):
     cmd = [sys.executable, "-m", "agsec.cli.main", "check", f"--format={fmt}"]
     if extra_args:
         cmd.extend(extra_args)
-    env = {"AGSEC_POLICY_DIR": policy_dir, "PATH": "", "AGSEC_AUDIT_DB": ":memory:"}
+    env = {"AGSEC_POLICY_DIR": policy_dir, "PATH": "", "AGSEC_AUDIT_DB": ":memory:", "AGSEC_MODE": "enforce"}
     result = subprocess.run(
         cmd,
         input=json.dumps(stdin_data),
