@@ -8,6 +8,7 @@ import sys
 from ...audit import AuditStore
 from ...threat import Severity, ThreatClassifier, group_findings
 from ..config import get_audit_db_path, load_mode
+from ..output import error, heading, info, mode_label, plain, severity_label, success, subheading
 
 
 def register(subparsers):
@@ -22,13 +23,14 @@ def run(args):
     try:
         audit = AuditStore(get_audit_db_path())
     except Exception as e:
-        print(f"Error opening audit database: {e}", file=sys.stderr)
+        error(f"Cannot open audit database: {e}")
+        info("Fix: Check permissions on ~/.agsec/audit.db or set AGSEC_AUDIT_DB")
         sys.exit(1)
 
     executions = audit.get_executions_since(hours=args.hours, days=args.days)
 
     if not executions:
-        print("No audit records found. Run your agent in observe mode first.")
+        info("No audit records found. Run your agent in observe mode first.")
         return
 
     classifier = ThreatClassifier()
@@ -42,9 +44,7 @@ def run(args):
 
 
 def _render_human(report, mode, args):
-    # Header
-    print("agsec threat analysis")
-    print("=" * 21)
+    heading("agsec threat analysis")
 
     # Time window
     if args.hours:
@@ -53,17 +53,17 @@ def _render_human(report, mode, args):
         window = f"Last {args.days}d"
     else:
         window = "All time"
-    print(f"Time window: {window} ({report.total_executions} actions)")
-    print(f"Mode: {mode}")
-    print()
+    plain(f"Time window: {window} ({report.total_executions} actions)")
+    plain(f"Mode: {mode_label(mode)}")
+    plain("")
 
     # Blast radius
     bar_filled = int(report.blast_radius)
     bar_empty = 10 - bar_filled
     bar = "\u2588" * bar_filled + "\u2591" * bar_empty
-    print(f"Blast Radius: {report.blast_radius} / 10.0 \u2014 {report.blast_radius_label}")
-    print(f"              {bar}")
-    print()
+    plain(f"Blast Radius: {report.blast_radius} / 10.0 \u2014 {report.blast_radius_label}")
+    plain(f"              {bar}")
+    plain("")
 
     # Threats (allowed through)
     if report.threats:
@@ -71,38 +71,38 @@ def _render_human(report, mode, args):
         current_severity = None
 
         for group in grouped:
-            sev = group["severity"].upper()
-            if sev != current_severity:
-                current_severity = sev
-                sev_count = report.severity_counts.get(group["severity"], 0)
-                print(f"{sev} ({sev_count} unblocked)")
+            sev = group["severity"]
+            if sev.upper() != current_severity:
+                current_severity = sev.upper()
+                sev_count = report.severity_counts.get(sev, 0)
+                subheading(f"{severity_label(sev)} ({sev_count} unblocked)")
 
-            print(f"  {group['name']} ({group['count']}x)")
+            plain(f"  {group['name']} ({group['count']}x)")
             if group["examples"]:
                 examples_str = ", ".join(group["examples"][:3])
                 if len(examples_str) > 100:
                     examples_str = examples_str[:97] + "..."
-                print(f"    \u2192 {examples_str}")
-            print(f"    Impact: {group['consequence']}")
-            print()
+                info(f"    \u2192 {examples_str}")
+            info(f"    Impact: {group['consequence']}")
+            plain("")
     else:
-        print("No unblocked threats detected.")
-        print()
+        success("No unblocked threats detected.")
+        plain("")
 
     # Caught by policy
     if report.blocked:
         total_blocked = len(report.blocked)
-        print(f"Caught by policy ({total_blocked} actions blocked)")
+        success(f"Caught by policy ({total_blocked} actions blocked)")
         blocked_grouped = group_findings(report.blocked)
         summaries = [f"{g['count']}x {g['name'].lower()}" for g in blocked_grouped]
-        print(f"  {', '.join(summaries)}")
-        print()
+        info(f"  {', '.join(summaries)}")
+        plain("")
 
     # Recommendations
     if report.recommendations:
-        print("Recommendations")
+        subheading("Recommendations")
         for i, rec in enumerate(report.recommendations, 1):
-            print(f"  {i}. {rec}")
+            plain(f"  {i}. {rec}")
 
 
 def _render_json(report, mode, args):
