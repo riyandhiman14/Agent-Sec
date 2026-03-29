@@ -46,6 +46,37 @@ class TestBashPolicies:
     def test_block_drop_table(self, engine):
         result = engine.evaluate("bash.execute", {"command": "psql -c 'DROP TABLE users'"})
         assert result.status == PolicyStatus.BLOCK
+        assert result.metadata["sid"] == "BlockDDL"
+
+    def test_block_truncate_table(self, engine):
+        result = engine.evaluate("bash.execute", {"command": "TRUNCATE TABLE sessions"})
+        assert result.status == PolicyStatus.BLOCK
+
+    def test_block_alter_drop(self, engine):
+        result = engine.evaluate("bash.execute", {"command": "ALTER TABLE users DROP column email"})
+        assert result.status == PolicyStatus.BLOCK
+
+    def test_block_delete_from(self, engine):
+        result = engine.evaluate("bash.execute", {"command": "DELETE FROM users WHERE id=1"})
+        assert result.status == PolicyStatus.BLOCK
+        assert result.metadata["sid"] == "BlockDML"
+
+    def test_block_update_set(self, engine):
+        result = engine.evaluate("bash.execute", {"command": "UPDATE users SET role='admin'"})
+        assert result.status == PolicyStatus.BLOCK
+
+    def test_block_insert_into(self, engine):
+        result = engine.evaluate("bash.execute", {"command": "INSERT INTO users VALUES (1, 'hacker')"})
+        assert result.status == PolicyStatus.BLOCK
+
+    def test_block_audit_db_access(self, engine):
+        result = engine.evaluate("bash.execute", {"command": "sqlite3 ~/.agsec/audit.db 'SELECT * FROM executions'"})
+        assert result.status == PolicyStatus.BLOCK
+        assert result.metadata["sid"] == "BlockAuditDBAccess"
+
+    def test_block_audit_db_psql(self, engine):
+        result = engine.evaluate("bash.execute", {"command": "psql -d .agsec/audit.db"})
+        assert result.status == PolicyStatus.BLOCK
 
     def test_block_cat_env(self, engine):
         result = engine.evaluate("bash.execute", {"command": "cat .env"})
@@ -97,6 +128,31 @@ class TestFilePolicies:
 class TestReadPolicies:
     def test_allow_read_any(self, engine):
         result = engine.evaluate("file.read", {"file_path": "anything.py"})
+        assert result.status == PolicyStatus.ALLOW
+
+    def test_block_read_env(self, engine):
+        result = engine.evaluate("file.read", {"file_path": ".env"})
+        assert result.status == PolicyStatus.BLOCK
+        assert result.metadata["sid"] == "BlockReadSecrets"
+
+    def test_block_read_credentials_json(self, engine):
+        result = engine.evaluate("file.read", {"file_path": "/app/credentials.json"})
+        assert result.status == PolicyStatus.BLOCK
+
+    def test_block_read_ssh_key(self, engine):
+        result = engine.evaluate("file.read", {"file_path": "/home/user/.ssh/id_rsa"})
+        assert result.status == PolicyStatus.BLOCK
+
+    def test_block_read_aws_credentials(self, engine):
+        result = engine.evaluate("file.read", {"file_path": "/home/user/.aws/credentials"})
+        assert result.status == PolicyStatus.BLOCK
+
+    def test_block_read_env_local(self, engine):
+        result = engine.evaluate("file.read", {"file_path": ".env.local"})
+        assert result.status == PolicyStatus.BLOCK
+
+    def test_allow_read_normal_file(self, engine):
+        result = engine.evaluate("file.read", {"file_path": "src/main.py"})
         assert result.status == PolicyStatus.ALLOW
 
     def test_allow_glob(self, engine):

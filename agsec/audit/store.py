@@ -60,15 +60,21 @@ class AuditStore:
                 policy_status TEXT NOT NULL,
                 policy_reason TEXT,
                 context TEXT,
-                error TEXT
+                error TEXT,
+                outcome TEXT
             )
         """)
+        # Migrate existing databases that don't have the outcome column
+        try:
+            self.conn.execute("SELECT outcome FROM executions LIMIT 1")
+        except sqlite3.OperationalError:
+            self.conn.execute("ALTER TABLE executions ADD COLUMN outcome TEXT")
         self.conn.commit()
 
-    def log_execution(self, execution: ActionExecutionResult, context: Optional[Dict[str, Any]] = None, error: Optional[str] = None) -> None:
+    def log_execution(self, execution: ActionExecutionResult, context: Optional[Dict[str, Any]] = None, error: Optional[str] = None, outcome: Optional[str] = None) -> None:
         self.conn.execute("""
-            INSERT INTO executions (timestamp, action, params, result, policy_status, policy_reason, context, error)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO executions (timestamp, action, params, result, policy_status, policy_reason, context, error, outcome)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             datetime.utcnow().isoformat(),
             execution.action,
@@ -77,7 +83,8 @@ class AuditStore:
             execution.policy.status.value,
             execution.policy.reason,
             json.dumps(context, default=str) if context else None,
-            error
+            error,
+            outcome,
         ))
         self.conn.commit()
 

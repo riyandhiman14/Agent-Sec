@@ -21,15 +21,35 @@ statements:
         value: "(chmod\\s+777|mkfs\\.|dd\\s+if=|shred\\s|wipe\\s)"
     reason: "Destructive filesystem command blocked"
 
-  # Block destructive database commands
-  - sid: "BlockDestructiveSQL"
+  # Block DDL commands (DROP, TRUNCATE, ALTER DROP)
+  - sid: "BlockDDL"
     effect: deny
     actions: ["bash.execute"]
     conditions:
       params.command:
         op: "regex"
-        value: "(?i)(DROP\\s+(TABLE|DATABASE)|TRUNCATE\\s+TABLE|DELETE\\s+FROM\\s+\\S+\\s*$)"
-    reason: "Destructive database command blocked"
+        value: "(?i)(DROP\\s+(TABLE|DATABASE)|TRUNCATE\\s+TABLE|ALTER\\s+TABLE\\s+\\S+\\s+DROP)"
+    reason: "Destructive DDL command blocked — agents should not modify database schema"
+
+  # Block DML commands (DELETE, UPDATE, INSERT, MERGE)
+  - sid: "BlockDML"
+    effect: deny
+    actions: ["bash.execute"]
+    conditions:
+      params.command:
+        op: "regex"
+        value: "(?i)(DELETE\\s+FROM|UPDATE\\s+\\S+\\s+SET|INSERT\\s+INTO|MERGE\\s+INTO)"
+    reason: "Direct SQL data modification blocked — use application layer for data changes"
+
+  # Block direct access to agsec audit database
+  - sid: "BlockAuditDBAccess"
+    effect: deny
+    actions: ["bash.execute"]
+    conditions:
+      params.command:
+        op: "regex"
+        value: "(sqlite3|psql|mysql|mongosh?)\\s+.*(\\.agsec/|audit\\.db)"
+    reason: "Direct access to audit database is blocked — protects audit trail integrity"
 
   # Block direct access to secrets via bash
   - sid: "BlockSecretAccess"

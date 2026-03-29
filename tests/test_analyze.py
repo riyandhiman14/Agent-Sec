@@ -37,6 +37,31 @@ class TestThreatClassifier:
         assert report.severity_counts["critical"] == 1
         assert report.threats[0].pattern.id == "destructive_sql"
 
+    def test_dml_sql_high(self):
+        rows = [_row("bash.execute", {"command": "DELETE FROM users WHERE id=1"})]
+        report = ThreatClassifier().classify(rows)
+        assert any(t.pattern.id == "dml_sql" for t in report.threats)
+
+    def test_dml_update_high(self):
+        rows = [_row("bash.execute", {"command": "UPDATE users SET role='admin'"})]
+        report = ThreatClassifier().classify(rows)
+        assert any(t.pattern.id == "dml_sql" for t in report.threats)
+
+    def test_dml_insert_high(self):
+        rows = [_row("bash.execute", {"command": "INSERT INTO users VALUES (1, 'hacker')"})]
+        report = ThreatClassifier().classify(rows)
+        assert any(t.pattern.id == "dml_sql" for t in report.threats)
+
+    def test_audit_tampering_critical(self):
+        rows = [_row("bash.execute", {"command": "sqlite3 ~/.agsec/audit.db 'DELETE FROM executions'"})]
+        report = ThreatClassifier().classify(rows)
+        assert any(t.pattern.id == "audit_tampering" for t in report.threats)
+
+    def test_audit_tampering_psql(self):
+        rows = [_row("bash.execute", {"command": "psql -d .agsec/audit.db -c 'SELECT *'"})]
+        report = ThreatClassifier().classify(rows)
+        assert any(t.pattern.id == "audit_tampering" for t in report.threats)
+
     def test_file_deletion_high(self):
         rows = [_row("bash.execute", {"command": "rm -rf /tmp/stuff"})]
         report = ThreatClassifier().classify(rows)
@@ -90,6 +115,96 @@ class TestThreatClassifier:
         report = ThreatClassifier().classify(rows)
         assert len(report.threats) == 0
         assert report.blast_radius == 0
+
+    def test_read_secrets_critical(self):
+        rows = [_row("file.read", {"file_path": ".env"})]
+        report = ThreatClassifier().classify(rows)
+        assert report.severity_counts["critical"] == 1
+        assert report.threats[0].pattern.id == "read_secrets"
+
+    def test_read_credentials_json_critical(self):
+        rows = [_row("file.read", {"file_path": "/app/credentials.json"})]
+        report = ThreatClassifier().classify(rows)
+        assert report.severity_counts["critical"] == 1
+        assert report.threats[0].pattern.id == "read_secrets"
+
+    def test_read_ssh_key_critical(self):
+        rows = [_row("file.read", {"file_path": "/home/user/.ssh/id_rsa"})]
+        report = ThreatClassifier().classify(rows)
+        assert report.severity_counts["critical"] == 1
+        assert report.threats[0].pattern.id == "read_secrets"
+
+    def test_read_system_files_high(self):
+        rows = [_row("file.read", {"file_path": "/etc/passwd"})]
+        report = ThreatClassifier().classify(rows)
+        assert report.severity_counts["high"] == 1
+        assert report.threats[0].pattern.id == "read_system"
+
+    def test_read_policy_config_high(self):
+        rows = [_row("file.read", {"file_path": ".agsec.yaml"})]
+        report = ThreatClassifier().classify(rows)
+        assert report.severity_counts["high"] == 1
+        assert report.threats[0].pattern.id == "read_policy"
+
+    def test_read_claude_settings_high(self):
+        rows = [_row("file.read", {"file_path": ".claude/settings.json"})]
+        report = ThreatClassifier().classify(rows)
+        assert report.severity_counts["high"] == 1
+        assert report.threats[0].pattern.id == "read_policy"
+
+    def test_notebook_sensitive_high(self):
+        rows = [_row("notebook.edit", {"file_path": ".env"})]
+        report = ThreatClassifier().classify(rows)
+        assert report.severity_counts["high"] == 1
+        assert report.threats[0].pattern.id == "notebook_sensitive"
+
+    def test_scan_secrets_via_glob_medium(self):
+        rows = [_row("file.glob", {"pattern": "**/.env*"})]
+        report = ThreatClassifier().classify(rows)
+        assert report.severity_counts["medium"] == 1
+        assert report.threats[0].pattern.id == "scan_secrets"
+
+    def test_scan_secrets_via_grep_medium(self):
+        rows = [_row("file.grep", {"pattern": "password"})]
+        report = ThreatClassifier().classify(rows)
+        assert report.severity_counts["medium"] == 1
+        assert report.threats[0].pattern.id == "scan_secrets"
+
+
+class TestOutcomeClassification:
+    def test_observe_mode_allowed_through_is_threat(self):
+        """In observe mode, outcome=allowed even though policy said block — it's a threat."""
+        row = _row("bash.execute", {"command": "cat .env"}, policy_status="block")
+        row["outcome"] = "allowed"
+        report = ThreatClassifier().classify([row])
+        assert len(report.threats) == 1
+        assert len(report.blocked) == 0
+        assert report.blast_radius > 0
+
+    def test_enforce_mode_blocked_is_caught(self):
+        row = _row("bash.execute", {"command": "cat .env"}, policy_status="block")
+        row["outcome"] = "blocked"
+        report = ThreatClassifier().classify([row])
+        assert len(report.threats) == 0
+        assert len(report.blocked) == 1
+
+    def test_mixed_outcomes(self):
+        rows = [
+            {**_row("bash.execute", {"command": "cat .env"}, policy_status="block"), "outcome": "blocked"},
+            {**_row("bash.execute", {"command": "rm -rf /tmp"}, policy_status="block"), "outcome": "allowed"},
+            {**_row("file.read", {"file_path": ".env"}, policy_status="block"), "outcome": "allowed"},
+        ]
+        report = ThreatClassifier().classify(rows)
+        assert len(report.blocked) == 1  # cat .env was actually blocked
+        assert len(report.threats) == 2  # rm + .env read got through
+
+    def test_legacy_rows_without_outcome_use_policy_status(self):
+        """Old audit rows without outcome column fall back to policy_status."""
+        row = _row("bash.execute", {"command": "cat .env"}, policy_status="block")
+        # No outcome field — legacy behavior
+        report = ThreatClassifier().classify([row])
+        assert len(report.blocked) == 1
+        assert len(report.threats) == 0
 
 
 class TestBlockedVsAllowed:
@@ -227,6 +342,71 @@ class TestGroupFindings:
         groups = group_findings(report.threats)
         severities = [g["severity"] for g in groups]
         assert severities == ["critical", "medium", "low"]
+
+
+class TestActivityGroups:
+    """Tests for --all activity report grouping."""
+
+    def test_groups_by_action_type(self):
+        from agsec.cli.commands.analyze import _build_activity_groups
+        rows = [
+            _row("bash.execute", {"command": "ls"}),
+            _row("bash.execute", {"command": "pwd"}),
+            _row("file.read", {"file_path": "README.md"}),
+        ]
+        groups = _build_activity_groups(rows)
+        assert "bash.execute" in groups
+        assert "file.read" in groups
+        assert groups["bash.execute"]["label"] == "Shell Commands"
+        assert groups["file.read"]["label"] == "File Reads"
+        assert sum(groups["bash.execute"]["counts"].values()) == 2
+        assert sum(groups["file.read"]["counts"].values()) == 1
+
+    def test_blocked_items_tracked(self):
+        from agsec.cli.commands.analyze import _build_activity_groups
+        rows = [
+            _row("bash.execute", {"command": "rm -rf /"}, policy_status="block"),
+            _row("bash.execute", {"command": "ls"}, policy_status="allow"),
+        ]
+        groups = _build_activity_groups(rows)
+        assert groups["bash.execute"]["counts"]["block"] == 1
+        assert groups["bash.execute"]["counts"]["allow"] == 1
+
+    def test_internal_tools_skipped(self):
+        from agsec.cli.commands.analyze import _build_activity_groups
+        rows = [
+            _row("internal.TaskCreate", {"name": "test"}),
+            _row("bash.execute", {"command": "ls"}),
+        ]
+        groups = _build_activity_groups(rows)
+        assert "internal.TaskCreate" not in groups
+        assert "bash.execute" in groups
+
+    def test_mcp_tools_labeled(self):
+        from agsec.cli.commands.analyze import _build_activity_groups
+        rows = [_row("mcp.github.create_issue", {"title": "bug"})]
+        groups = _build_activity_groups(rows)
+        assert "mcp.github.create_issue" in groups
+        assert groups["mcp.github.create_issue"]["label"] == "MCP: github.create_issue"
+
+    def test_extracts_display_value(self):
+        from agsec.cli.commands.analyze import _build_activity_groups
+        rows = [_row("bash.execute", {"command": "npm install"})]
+        groups = _build_activity_groups(rows)
+        assert groups["bash.execute"]["items"][0]["value"] == "npm install"
+
+    def test_truncates_long_values(self):
+        from agsec.cli.commands.analyze import _build_activity_groups
+        long_cmd = "x" * 200
+        rows = [_row("bash.execute", {"command": long_cmd})]
+        groups = _build_activity_groups(rows)
+        assert len(groups["bash.execute"]["items"][0]["value"]) == 100
+
+    def test_handles_string_params(self):
+        from agsec.cli.commands.analyze import _build_activity_groups
+        rows = [{"action": "bash.execute", "params": '{"command": "ls"}', "policy_status": "allow"}]
+        groups = _build_activity_groups(rows)
+        assert groups["bash.execute"]["items"][0]["value"] == "ls"
 
 
 class TestAuditStoreTimeQuery:

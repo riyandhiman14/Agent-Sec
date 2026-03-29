@@ -8,7 +8,17 @@ statements:
     actions:
       - "internal.*"
 
-  # Allow all read/search operations — low risk
+  # Block reads of sensitive files (secrets, credentials, keys)
+  - sid: "BlockReadSecrets"
+    effect: deny
+    actions: ["file.read"]
+    conditions:
+      params.file_path:
+        op: "regex"
+        value: "(\\.env$|\\.env\\..+|credentials\\.json|secrets\\.ya?ml|\\.ssh/|id_rsa|\\.aws/credentials|\\.gcloud/|service[_-]account.*\\.json)"
+    reason: "Reading secret files is blocked"
+
+  # Allow all other read/search operations — low risk
   - sid: "AllowReadOps"
     effect: allow
     actions:
