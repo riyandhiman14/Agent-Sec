@@ -34,6 +34,7 @@ class AuditStore:
 
         self.conn.row_factory = sqlite3.Row
         self._init_db()
+        self._auto_prune()
 
     def __enter__(self):
         return self
@@ -133,6 +134,30 @@ class AuditStore:
         query += " ORDER BY timestamp DESC LIMIT 100000"
         rows = self.conn.execute(query, params).fetchall()
         return [dict(row) for row in rows]
+
+    def prune(self, days: int = 7) -> int:
+        """Delete audit records older than N days. Returns count deleted."""
+        cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+        cursor = self.conn.execute("DELETE FROM executions WHERE timestamp < ?", (cutoff,))
+        self.conn.commit()
+        return cursor.rowcount
+
+    def clear(self) -> int:
+        """Delete ALL audit records. Returns count deleted."""
+        cursor = self.conn.execute("DELETE FROM executions")
+        self.conn.commit()
+        return cursor.rowcount
+
+    def _auto_prune(self) -> None:
+        """Auto-prune if AGSEC_AUDIT_RETENTION_DAYS is set."""
+        retention = os.environ.get("AGSEC_AUDIT_RETENTION_DAYS")
+        if retention is not None:
+            try:
+                days = int(retention)
+                if days > 0:
+                    self.prune(days=days)
+            except ValueError:
+                pass
 
     def export_to_json(self, file_path: str) -> None:
         executions = self.get_executions(limit=10000)

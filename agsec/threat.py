@@ -177,7 +177,7 @@ THREAT_PATTERNS: List[ThreatPattern] = [
         severity=Severity.HIGH,
         action_types=["file.read"],
         param_field="file_path",
-        regex=r"(\.agsec\.yaml|policies/.*\.ya?ml|\.claude/settings.*\.json|\.codex/hooks\.json)",
+        regex=r"(\.agsec\.yaml|policies/.*\.ya?ml|\.claude/settings.*\.json|\.codex/hooks\.json|\.cursor/hooks\.json|\.windsurf/settings.*\.json|\.clinerules/hooks/|\.github/hooks/hooks\.json|\.copilot/hooks/hooks\.json)",
         consequence=(
             "Agent reading its own guardrails \u2014 could learn what's blocked "
             "and craft bypass strategies"
@@ -229,7 +229,7 @@ THREAT_PATTERNS: List[ThreatPattern] = [
         severity=Severity.HIGH,
         action_types=["file.write", "file.edit"],
         param_field="file_path",
-        regex=r"(\.agsec\.yaml|policies/.*\.ya?ml|\.claude/settings.*\.json|\.codex/hooks\.json)",
+        regex=r"(\.agsec\.yaml|policies/.*\.ya?ml|\.claude/settings.*\.json|\.codex/hooks\.json|\.cursor/hooks\.json|\.windsurf/settings.*\.json|\.clinerules/hooks/|\.github/hooks/hooks\.json|\.copilot/hooks/hooks\.json)",
         consequence=(
             "Policy escape \u2014 agent modifying its own guardrails "
             "could disable all protections"

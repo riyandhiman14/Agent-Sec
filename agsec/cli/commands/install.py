@@ -8,6 +8,8 @@ import shlex
 import shutil
 import sys
 
+from ..output import error, info, success, warn
+
 
 def register(subparsers):
     p = subparsers.add_parser("install", help="Install agsec hooks for an agent platform")
@@ -95,8 +97,8 @@ def _install_claude_code(project_dir: str):
     )
 
     if already_installed:
-        print("agsec hook already installed in Claude Code.")
-        print(f"  Config: {settings_path}")
+        warn("agsec hook already installed in Claude Code.")
+        info(f"  Config: {settings_path}")
         return
 
     pre_tool_hooks.append(new_hook)
@@ -105,11 +107,10 @@ def _install_claude_code(project_dir: str):
     with os.fdopen(fd, "w") as f:
         json.dump(settings, f, indent=2)
 
-    print("agsec hook installed for Claude Code.")
-    print(f"  Config: {settings_path}")
-    print(f"  Hook: {hook_command}")
-    print()
-    print("The firewall is now active. Every tool call will be checked against your policies.")
+    success("agsec hook installed for Claude Code.")
+    info(f"  Config: {settings_path}")
+    info(f"  Hook: {hook_command}")
+    info("The firewall is now active. Every tool call will be checked against your policies.")
 
 
 def _install_codex(project_dir: str):
@@ -137,8 +138,8 @@ def _install_codex(project_dir: str):
                 # Check if already installed
                 for h in existing.get("hooks", []):
                     if "agsec" in h.get("command", ""):
-                        print("agsec hook already installed for Codex.")
-                        print(f"  Config: {hooks_path}")
+                        warn("agsec hook already installed for Codex.")
+                        info(f"  Config: {hooks_path}")
                         return
                 existing.setdefault("hooks", []).append(hooks_config["hooks"][0])
                 hooks_config = existing
@@ -149,9 +150,9 @@ def _install_codex(project_dir: str):
     with os.fdopen(fd, "w") as f:
         json.dump(hooks_config, f, indent=2)
 
-    print("agsec hook installed for Codex.")
-    print(f"  Config: {hooks_path}")
-    print(f"  Hook: {hook_command}")
+    success("agsec hook installed for Codex.")
+    info(f"  Config: {hooks_path}")
+    info(f"  Hook: {hook_command}")
 
 
 # ---------------------------------------------------------------------------
@@ -176,14 +177,14 @@ def _uninstall_claude_code(project_dir: str):
     settings_path = os.path.join(project_dir, ".claude", "settings.json")
 
     if not os.path.isfile(settings_path):
-        print("agsec is not installed for Claude Code (no settings.json found).")
+        warn("agsec is not installed for Claude Code (no settings.json found).")
         return
 
     with open(settings_path, "r") as f:
         try:
             settings = json.load(f)
         except json.JSONDecodeError:
-            print("Could not read settings.json.")
+            error("Could not read settings.json.")
             return
 
     hooks = settings.get("hooks", {})
@@ -196,7 +197,7 @@ def _uninstall_claude_code(project_dir: str):
     ]
 
     if len(filtered) == len(pre_tool_hooks):
-        print("agsec is not installed for Claude Code.")
+        warn("agsec is not installed for Claude Code.")
         return
 
     # Clean up empty structures
@@ -214,30 +215,30 @@ def _uninstall_claude_code(project_dir: str):
     with os.fdopen(fd, "w") as f:
         json.dump(settings, f, indent=2)
 
-    print("agsec hook removed from Claude Code.")
-    print(f"  Config: {settings_path}")
-    print("  Restart Claude Code for changes to take effect.")
+    success("agsec hook removed from Claude Code.")
+    info(f"  Config: {settings_path}")
+    info("  Restart Claude Code for changes to take effect.")
 
 
 def _uninstall_codex(project_dir: str):
     hooks_path = os.path.join(project_dir, ".codex", "hooks.json")
 
     if not os.path.isfile(hooks_path):
-        print("agsec is not installed for Codex (no hooks.json found).")
+        warn("agsec is not installed for Codex (no hooks.json found).")
         return
 
     with open(hooks_path, "r") as f:
         try:
             config = json.load(f)
         except json.JSONDecodeError:
-            print("Could not read hooks.json.")
+            error("Could not read hooks.json.")
             return
 
     hooks_list = config.get("hooks", [])
     filtered = [h for h in hooks_list if "agsec" not in h.get("command", "")]
 
     if len(filtered) == len(hooks_list):
-        print("agsec is not installed for Codex.")
+        warn("agsec is not installed for Codex.")
         return
 
     config["hooks"] = filtered
@@ -246,8 +247,8 @@ def _uninstall_codex(project_dir: str):
     with os.fdopen(fd, "w") as f:
         json.dump(config, f, indent=2)
 
-    print("agsec hook removed from Codex.")
-    print(f"  Config: {hooks_path}")
+    success("agsec hook removed from Codex.")
+    info(f"  Config: {hooks_path}")
 
 
 # ---------------------------------------------------------------------------
@@ -281,14 +282,14 @@ def _install_cursor(project_dir: str):
     shell_hooks = hooks.setdefault("beforeShellExecution", [])
 
     if any("agsec" in h.get("command", "") for h in shell_hooks):
-        print("agsec hook already installed for Cursor.")
+        warn("agsec hook already installed for Cursor.")
         return
 
     shell_hooks.append(hook_entry)
 
     _write_json(hooks_path, config)
-    print("agsec hook installed for Cursor.")
-    print(f"  Config: {hooks_path}")
+    success("agsec hook installed for Cursor.")
+    info(f"  Config: {hooks_path}")
 
 
 def _uninstall_cursor(project_dir: str):
@@ -330,14 +331,14 @@ def _install_windsurf(project_dir: str):
     pre_hooks = hooks.setdefault("PreToolUse", [])
 
     if any("agsec" in str(h) for h in pre_hooks):
-        print("agsec hook already installed for Windsurf.")
+        warn("agsec hook already installed for Windsurf.")
         return
 
     pre_hooks.append(new_hook)
 
     _write_json(settings_path, settings)
-    print("agsec hook installed for Windsurf.")
-    print(f"  Config: {settings_path}")
+    success("agsec hook installed for Windsurf.")
+    info(f"  Config: {settings_path}")
 
 
 def _uninstall_windsurf(project_dir: str):
@@ -363,7 +364,7 @@ def _install_cline(project_dir: str):
         cmd += f" --policy-dir {shlex.quote(policy_dir)}"
 
     if os.path.isfile(script_path):
-        print("agsec hook already installed for Cline.")
+        warn("agsec hook already installed for Cline.")
         return
 
     script = f"""#!/bin/bash
@@ -374,20 +375,20 @@ def _install_cline(project_dir: str):
     with os.fdopen(fd, "w") as f:
         f.write(script)
 
-    print("agsec hook installed for Cline.")
-    print(f"  Script: {script_path}")
+    success("agsec hook installed for Cline.")
+    info(f"  Script: {script_path}")
 
 
 def _uninstall_cline(project_dir: str):
     script_path = os.path.join(project_dir, ".clinerules", "hooks", "agsec-check.sh")
 
     if not os.path.isfile(script_path):
-        print("agsec is not installed for Cline.")
+        warn("agsec is not installed for Cline.")
         return
 
     os.unlink(script_path)
-    print("agsec hook removed from Cline.")
-    print(f"  Removed: {script_path}")
+    success("agsec hook removed from Cline.")
+    info(f"  Removed: {script_path}")
 
 
 # ---------------------------------------------------------------------------
@@ -438,7 +439,7 @@ def _install_copilot(project_dir: str):
     pre_hooks = hooks.setdefault("preToolUse", [])
 
     if any("agsec" in str(h.get("bash", "")) for h in pre_hooks):
-        print("agsec hook already installed for GitHub Copilot.")
+        warn("agsec hook already installed for GitHub Copilot.")
         return
 
     pre_hooks.append(hook_entry)
@@ -451,12 +452,11 @@ def _install_copilot(project_dir: str):
     user_hooks_path = os.path.join(user_hooks_dir, "hooks.json")
     _write_json(user_hooks_path, config)
 
-    print("agsec hook installed for GitHub Copilot.")
-    print(f"  Project: {hooks_path} (commit and push for cloud agent)")
-    print(f"  User:    {user_hooks_path} (local VS Code)")
-    print()
-    print("  Note: 'agsec install claude-code' also covers VS Code Copilot")
-    print("  since VS Code reads .claude/settings.json hooks.")
+    success("agsec hook installed for GitHub Copilot.")
+    info(f"  Project: {hooks_path} (commit and push for cloud agent)")
+    info(f"  User:    {user_hooks_path} (local VS Code)")
+    info("  Note: 'agsec install claude-code' also covers VS Code Copilot")
+    info("  since VS Code reads .claude/settings.json hooks.")
 
 
 def _uninstall_copilot(project_dir: str):
@@ -466,20 +466,20 @@ def _uninstall_copilot(project_dir: str):
     project_path = os.path.join(project_dir, ".github", "hooks", "hooks.json")
     if os.path.isfile(project_path):
         if _remove_agsec_from_hooks_file(project_path):
-            print(f"  Removed from: {project_path}")
+            info(f"  Removed from: {project_path}")
             removed = True
 
     # Remove from ~/.copilot/hooks/
     user_path = os.path.join(os.path.expanduser("~"), ".copilot", "hooks", "hooks.json")
     if os.path.isfile(user_path):
         if _remove_agsec_from_hooks_file(user_path):
-            print(f"  Removed from: {user_path}")
+            info(f"  Removed from: {user_path}")
             removed = True
 
     if removed:
-        print("agsec hook removed from GitHub Copilot.")
+        success("agsec hook removed from GitHub Copilot.")
     else:
-        print("agsec is not installed for GitHub Copilot.")
+        warn("agsec is not installed for GitHub Copilot.")
 
 
 def _remove_agsec_from_hooks_file(path: str) -> bool:
@@ -528,40 +528,40 @@ def _write_json(path: str, data: dict):
 def _uninstall_json_hooks(hooks_path: str, name: str, hook_key: str):
     """Remove agsec hooks from a JSON hooks file with a list under hook_key."""
     if not os.path.isfile(hooks_path):
-        print(f"agsec is not installed for {name}.")
+        warn(f"agsec is not installed for {name}.")
         return
 
     with open(hooks_path, "r") as f:
         try:
             config = json.load(f)
         except json.JSONDecodeError:
-            print(f"Could not read {os.path.basename(hooks_path)}.")
+            error(f"Could not read {os.path.basename(hooks_path)}.")
             return
 
     hooks_list = config.get("hooks", {}).get(hook_key, [])
     filtered = [h for h in hooks_list if "agsec" not in h.get("command", "")]
 
     if len(filtered) == len(hooks_list):
-        print(f"agsec is not installed for {name}.")
+        warn(f"agsec is not installed for {name}.")
         return
 
     config["hooks"][hook_key] = filtered
     _write_json(hooks_path, config)
-    print(f"agsec hook removed from {name}.")
-    print(f"  Config: {hooks_path}")
+    success(f"agsec hook removed from {name}.")
+    info(f"  Config: {hooks_path}")
 
 
 def _uninstall_settings_hooks(settings_path: str, name: str):
     """Remove agsec hooks from a settings.json with PreToolUse structure."""
     if not os.path.isfile(settings_path):
-        print(f"agsec is not installed for {name}.")
+        warn(f"agsec is not installed for {name}.")
         return
 
     with open(settings_path, "r") as f:
         try:
             settings = json.load(f)
         except json.JSONDecodeError:
-            print(f"Could not read {os.path.basename(settings_path)}.")
+            error(f"Could not read {os.path.basename(settings_path)}.")
             return
 
     hooks = settings.get("hooks", {})
@@ -569,7 +569,7 @@ def _uninstall_settings_hooks(settings_path: str, name: str):
     filtered = [h for h in pre_hooks if "agsec" not in str(h)]
 
     if len(filtered) == len(pre_hooks):
-        print(f"agsec is not installed for {name}.")
+        warn(f"agsec is not installed for {name}.")
         return
 
     if filtered:
@@ -583,5 +583,5 @@ def _uninstall_settings_hooks(settings_path: str, name: str):
         settings.pop("hooks", None)
 
     _write_json(settings_path, settings)
-    print(f"agsec hook removed from {name}.")
-    print(f"  Config: {settings_path}")
+    success(f"agsec hook removed from {name}.")
+    info(f"  Config: {settings_path}")

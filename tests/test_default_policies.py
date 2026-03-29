@@ -124,6 +124,22 @@ class TestFilePolicies:
         result = engine.evaluate("file.edit", {"file_path": ".env.production"})
         assert result.status == PolicyStatus.BLOCK
 
+    def test_block_write_cursor_hooks(self, engine):
+        result = engine.evaluate("file.write", {"file_path": ".cursor/hooks.json", "content": "{}"})
+        assert result.status == PolicyStatus.BLOCK
+
+    def test_block_write_windsurf_settings(self, engine):
+        result = engine.evaluate("file.write", {"file_path": ".windsurf/settings.json", "content": "{}"})
+        assert result.status == PolicyStatus.BLOCK
+
+    def test_block_write_cline_hooks(self, engine):
+        result = engine.evaluate("file.write", {"file_path": ".clinerules/hooks/agsec-check.sh", "content": "#!/bin/bash"})
+        assert result.status == PolicyStatus.BLOCK
+
+    def test_block_write_copilot_hooks(self, engine):
+        result = engine.evaluate("file.write", {"file_path": ".github/hooks/hooks.json", "content": "{}"})
+        assert result.status == PolicyStatus.BLOCK
+
 
 class TestReadPolicies:
     def test_allow_read_any(self, engine):

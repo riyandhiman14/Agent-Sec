@@ -7,7 +7,7 @@ import sys
 
 from ...audit import AuditStore
 from ..config import get_audit_db_path, load_mode
-from ..output import error, heading, info, mode_label, plain, status_allow, status_block, status_review, table
+from ..output import error, heading, info, mode_label, plain, status_allow, status_block, status_review, success, table
 
 
 def register(subparsers):
@@ -16,6 +16,10 @@ def register(subparsers):
     p.add_argument("--action", help="Filter by action name")
     p.add_argument("--limit", type=int, default=20, help="Number of records (default: 20)")
     p.add_argument("--json", dest="as_json", action="store_true", help="Output as JSON")
+    p.add_argument("--prune", type=int, nargs="?", const=7, metavar="DAYS",
+                   help="Delete records older than N days (default: 7)")
+    p.add_argument("--clear", action="store_true",
+                   help="Delete ALL audit records")
     p.set_defaults(func=run)
 
 
@@ -26,6 +30,16 @@ def run(args):
         error(f"Cannot open audit database: {e}")
         info("Fix: Check permissions on ~/.agsec/audit.db or set AGSEC_AUDIT_DB")
         sys.exit(1)
+
+    if args.clear:
+        count = audit.clear()
+        success(f"Cleared {count} audit records.")
+        return
+
+    if args.prune is not None:
+        count = audit.prune(days=args.prune)
+        success(f"Pruned {count} records older than {args.prune} days.")
+        return
 
     if args.stats:
         stats = audit.get_execution_stats()

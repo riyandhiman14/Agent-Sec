@@ -152,6 +152,16 @@ class TestThreatClassifier:
         assert report.severity_counts["high"] == 1
         assert report.threats[0].pattern.id == "read_policy"
 
+    def test_policy_tampering_cursor(self):
+        rows = [_row("file.edit", {"file_path": ".cursor/hooks.json"})]
+        report = ThreatClassifier().classify(rows)
+        assert any(t.pattern.id == "policy_tampering" for t in report.threats)
+
+    def test_policy_tampering_windsurf(self):
+        rows = [_row("file.edit", {"file_path": ".windsurf/settings.json"})]
+        report = ThreatClassifier().classify(rows)
+        assert any(t.pattern.id == "policy_tampering" for t in report.threats)
+
     def test_notebook_sensitive_high(self):
         rows = [_row("notebook.edit", {"file_path": ".env"})]
         report = ThreatClassifier().classify(rows)
@@ -438,3 +448,91 @@ class TestAuditStoreTimeQuery:
         results = store.get_executions_since(hours=24)
         assert len(results) == 1
         assert "ls" in results[0]["params"]
+
+
+class TestAuditRetention:
+    def test_prune_deletes_old_records(self):
+        from datetime import datetime, timedelta
+        store = AuditStore(":memory:")
+        recent = datetime.utcnow().isoformat()
+        old = (datetime.utcnow() - timedelta(hours=48)).isoformat()
+        store.conn.execute(
+            "INSERT INTO executions (timestamp, action, params, policy_status) VALUES (?, ?, ?, ?)",
+            (recent, "bash.execute", '{"command": "ls"}', "allow"),
+        )
+        store.conn.execute(
+            "INSERT INTO executions (timestamp, action, params, policy_status) VALUES (?, ?, ?, ?)",
+            (old, "bash.execute", '{"command": "old"}', "allow"),
+        )
+        store.conn.commit()
+        store.prune(days=1)
+        results = store.get_executions()
+        assert len(results) == 1
+        assert "ls" in results[0]["params"]
+
+    def test_prune_returns_count(self):
+        from datetime import datetime, timedelta
+        store = AuditStore(":memory:")
+        old = (datetime.utcnow() - timedelta(days=10)).isoformat()
+        for i in range(5):
+            store.conn.execute(
+                "INSERT INTO executions (timestamp, action, params, policy_status) VALUES (?, ?, ?, ?)",
+                (old, "bash.execute", f'{{"command": "cmd{i}"}}', "allow"),
+            )
+        store.conn.commit()
+        count = store.prune(days=7)
+        assert count == 5
+
+    def test_clear_deletes_all(self):
+        store = AuditStore(":memory:")
+        for i in range(3):
+            store.conn.execute(
+                "INSERT INTO executions (timestamp, action, params, policy_status) VALUES (?, ?, ?, ?)",
+                ("2026-03-28T12:00:00", "bash.execute", f'{{"command": "cmd{i}"}}', "allow"),
+            )
+        store.conn.commit()
+        count = store.clear()
+        assert count == 3
+        results = store.get_executions()
+        assert len(results) == 0
+
+    def test_auto_prune_with_env_var(self, monkeypatch):
+        from datetime import datetime, timedelta
+        old = (datetime.utcnow() - timedelta(days=10)).isoformat()
+
+        # Create a store and insert old data directly
+        import sqlite3
+        conn = sqlite3.connect(":memory:")
+        conn.execute("""
+            CREATE TABLE executions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                action TEXT NOT NULL,
+                params TEXT NOT NULL,
+                result TEXT,
+                policy_status TEXT NOT NULL,
+                policy_reason TEXT,
+                context TEXT,
+                error TEXT,
+                outcome TEXT
+            )
+        """)
+        conn.execute(
+            "INSERT INTO executions (timestamp, action, params, policy_status) VALUES (?, ?, ?, ?)",
+            (old, "bash.execute", '{"command": "old"}', "allow"),
+        )
+        conn.commit()
+
+        # Now create AuditStore with env var — but we can't reuse the connection
+        # Instead, test prune directly with env var
+        monkeypatch.setenv("AGSEC_AUDIT_RETENTION_DAYS", "7")
+        store = AuditStore(":memory:")
+        store.conn.execute(
+            "INSERT INTO executions (timestamp, action, params, policy_status) VALUES (?, ?, ?, ?)",
+            (old, "bash.execute", '{"command": "old"}', "allow"),
+        )
+        store.conn.commit()
+        # Auto-prune already ran on init but the insert was after — prune manually
+        store._auto_prune()
+        results = store.get_executions()
+        assert len(results) == 0
