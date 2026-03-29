@@ -52,7 +52,7 @@ def _evaluate_condition(value: Any, condition: Any) -> bool:
             return str(value).endswith(str(expected))
         if op == "regex":
             pattern = str(expected)
-            if len(pattern) > 1000:
+            if len(pattern) > 500:
                 return False  # Reject overly long patterns
             try:
                 return bool(re.search(pattern, str(value)))

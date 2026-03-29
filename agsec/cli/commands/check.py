@@ -137,9 +137,9 @@ def run(args):
 
     # Audit log (never fail the check due to audit)
     try:
-        audit = AuditStore(get_audit_db_path())
-        exec_result = ActionExecutionResult(action=action, params=params, result=None, policy=result)
-        audit.log_execution(exec_result, context, outcome=outcome)
+        with AuditStore(get_audit_db_path()) as audit:
+            exec_result = ActionExecutionResult(action=action, params=params, result=None, policy=result)
+            audit.log_execution(exec_result, context, outcome=outcome)
     except Exception:
         pass
 

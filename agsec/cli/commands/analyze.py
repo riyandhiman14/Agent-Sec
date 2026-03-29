@@ -84,6 +84,9 @@ def _render_human(report, mode, args):
         window = "All time"
     plain(f"Time window: {window} ({report.total_executions} actions)")
     plain(f"Mode: {mode_label(mode)}")
+    if mode == "observe":
+        warn("Observe mode: scores reflect what WOULD have been blocked.")
+        info("Switch to enforce mode with: agsec enforce")
     plain("")
 
     # Blast radius

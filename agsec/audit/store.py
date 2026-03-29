@@ -65,6 +65,10 @@ class AuditStore:
                 outcome TEXT
             )
         """)
+        self.conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_executions_timestamp
+            ON executions(timestamp)
+        """)
         # Migrate existing databases that don't have the outcome column
         try:
             self.conn.execute("SELECT outcome FROM executions LIMIT 1")

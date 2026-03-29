@@ -51,4 +51,4 @@ class TestVersionFlag:
         )
         assert result.returncode == 0
         assert "agsec" in result.stdout
-        assert "0.2.1" in result.stdout
+        assert "0.2.2" in result.stdout

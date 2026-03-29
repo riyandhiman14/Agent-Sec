@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="agsec",
-    version="0.2.1",
+    version="0.2.2",
     author="Riyandhiman",
     author_email="noreply@example.com",
     description="AI Agent Action Firewall core SDK",
@@ -13,6 +13,7 @@ setup(
     long_description_content_type="text/markdown",
     url="https://github.com/riyandhiman14/Agent-Sec",
     packages=find_packages(),
+    package_data={"agsec": ["templates/policies/*.yaml"]},
     license="Apache-2.0",
     classifiers=[
         "Programming Language :: Python :: 3",

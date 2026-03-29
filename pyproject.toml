@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agsec"
-version = "0.2.1"
+version = "0.2.2"
 description = "AI Agent Action Firewall core SDK"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -44,6 +44,9 @@ dev = [
 "Homepage" = "https://github.com/riyandhiman14/Agent-Sec"
 "Repository" = "https://github.com/riyandhiman14/Agent-Sec"
 "Documentation" = "https://github.com/riyandhiman14/Agent-Sec#readme"
+
+[tool.setuptools.package-data]
+agsec = ["templates/policies/*.yaml"]
 
 [tool.pytest.ini_options]
 minversion = "6.0"

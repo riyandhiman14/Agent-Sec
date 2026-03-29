@@ -143,7 +143,7 @@ def table(headers: List[str], rows: List[List[str]], title: Optional[str] = None
         print(fmt.format(*headers))
         print(fmt.format(*["-" * w for w in widths]))
         for row in rows:
-            padded = [str(c) if i < len(row) else "" for i, c in enumerate(row)]
+            padded = [str(row[i]) if i < len(row) else "" for i in range(len(headers))]
             print(fmt.format(*padded))
 
 
