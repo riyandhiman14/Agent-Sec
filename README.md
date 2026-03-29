@@ -19,6 +19,25 @@ agent wants to act  →  agsec evaluates policy  →  allow / deny / review  →
 
 ---
 
+## See it in action
+
+### Without agsec — Claude deletes files freely
+<p align="center">
+  <img src="assets/claude_allowed.gif" alt="Claude deletes files without guardrails" width="720">
+</p>
+
+### With agsec — dangerous action blocked
+<p align="center">
+  <img src="assets/claude_blocked.gif" alt="agsec blocks Claude from deleting files" width="720">
+</p>
+
+### agsec analyze — threat analysis
+<p align="center">
+  <img src="assets/agsec_analyse.gif" alt="agsec analyze command" width="720">
+</p>
+
+---
+
 ## The problem
 
 You give Claude Code, Cursor, or Codex access to your terminal. It tries to be helpful. Sometimes it runs `rm -rf`. Writes to `.env`. Force-pushes to main. Makes an API call you didn't expect.
