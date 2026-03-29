@@ -57,6 +57,11 @@ class TestThreatClassifier:
         report = ThreatClassifier().classify(rows)
         assert any(t.pattern.id == "audit_tampering" for t in report.threats)
 
+    def test_encoded_execution_critical(self):
+        rows = [_row("bash.execute", {"command": "echo abc | base64 -d | sh"})]
+        report = ThreatClassifier().classify(rows)
+        assert any(t.pattern.id == "encoded_execution" for t in report.threats)
+
     def test_audit_tampering_psql(self):
         rows = [_row("bash.execute", {"command": "psql -d .agsec/audit.db -c 'SELECT *'"})]
         report = ThreatClassifier().classify(rows)

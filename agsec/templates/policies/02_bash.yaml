@@ -71,6 +71,16 @@ statements:
         value: "(curl|wget|nc|ncat).*(-d|--data|--upload|-T).*(\\.env|credentials|secret|password|token)"
     reason: "Potential data exfiltration blocked"
 
+  # Block encoded command execution (base64/hex decode piped to shell)
+  - sid: "BlockEncodedExecution"
+    effect: deny
+    actions: ["bash.execute"]
+    conditions:
+      params.command:
+        op: "regex"
+        value: "(base64\\s+-d|xxd\\s+-r|python[23]?\\s+-c\\s+['\"]*(exec|eval|import)|perl\\s+-e|ruby\\s+-e).*(\\||;)\\s*(sh|bash|zsh|exec)"
+    reason: "Encoded command execution blocked — potential policy bypass"
+
   # Allow other bash commands
   - sid: "AllowBash"
     effect: allow

@@ -93,6 +93,19 @@ THREAT_PATTERNS: List[ThreatPattern] = [
         recommendation="Ensure BlockDataExfiltration policy (02_bash.yaml) is enforced",
     ),
     ThreatPattern(
+        id="encoded_execution",
+        name="Encoded command execution",
+        severity=Severity.CRITICAL,
+        action_types=["bash.execute"],
+        param_field="command",
+        regex=r"(base64\s+-d|xxd\s+-r|python[23]?\s+-c\s+['\"]*(exec|eval|import)|perl\s+-e|ruby\s+-e).*(\|)\s*(sh|bash|zsh|exec)",
+        consequence=(
+            "Agent attempting to decode and execute hidden commands \u2014 "
+            "likely policy bypass attempt"
+        ),
+        recommendation="Investigate: agent used encoding to hide its true intent",
+    ),
+    ThreatPattern(
         id="destructive_sql",
         name="Destructive SQL (DDL)",
         severity=Severity.CRITICAL,

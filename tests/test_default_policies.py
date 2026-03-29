@@ -98,6 +98,27 @@ class TestBashPolicies:
         result = engine.evaluate("bash.execute", {"command": "git push origin feature/my-branch"})
         assert result.status == PolicyStatus.ALLOW
 
+    def test_block_base64_pipe_to_sh(self, engine):
+        result = engine.evaluate("bash.execute",
+            {"command": 'echo "cm0gLXJmIC8=" | base64 -d | sh'})
+        assert result.status == PolicyStatus.BLOCK
+        assert result.metadata["sid"] == "BlockEncodedExecution"
+
+    def test_block_xxd_pipe_to_bash(self, engine):
+        result = engine.evaluate("bash.execute",
+            {"command": 'echo 726d202d7266 | xxd -r -p | bash'})
+        assert result.status == PolicyStatus.BLOCK
+
+    def test_block_python_eval_pipe(self, engine):
+        result = engine.evaluate("bash.execute",
+            {"command": "python3 -c 'exec(\"import os\")' | sh"})
+        assert result.status == PolicyStatus.BLOCK
+
+    def test_allow_normal_base64_command(self, engine):
+        result = engine.evaluate("bash.execute",
+            {"command": "echo 'hello' | base64"})
+        assert result.status == PolicyStatus.ALLOW
+
 
 class TestFilePolicies:
     def test_allow_write_source(self, engine):
