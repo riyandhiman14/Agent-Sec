@@ -6,6 +6,7 @@ import os
 import shutil
 
 from ..config import get_templates_dir, set_mode
+from ..output import error, info, success, warn
 
 
 def register(subparsers):
@@ -20,13 +21,13 @@ def run(args):
     target = os.path.join(os.getcwd(), args.dir)
 
     if os.path.exists(target):
-        print(f"Directory already exists: {target}")
-        print("Use 'agsec validate' to check existing policies.")
+        warn(f"Directory already exists: {target}")
+        info("Use 'agsec validate' to check existing policies.")
         return
 
     templates = get_templates_dir()
     if not os.path.isdir(templates):
-        print("Error: Template policies not found. Reinstall agsec.")
+        error("Template policies not found. Reinstall agsec.")
         return
 
     shutil.copytree(templates, target)
@@ -35,19 +36,18 @@ def run(args):
     mode = "observe" if args.observe else "enforce"
     config_path = set_mode(mode)
 
-    mode_label = "OBSERVE" if args.observe else "ENFORCE"
+    mode_str = "OBSERVE" if args.observe else "ENFORCE"
     files = sorted(os.listdir(target))
-    print(f"Created {target}/ with {len(files)} policy files ({mode_label} mode)")
+    success(f"Created {target}/ with {len(files)} policy files ({mode_str} mode)")
     for f in files:
-        print(f"  {f}")
-    print()
+        info(f"  {f}")
 
     if args.observe:
-        print("Observe mode: all actions are ALLOWED but logged.")
-        print("Run 'agsec audit --stats' to see what would be blocked.")
-        print("Run 'agsec enforce' when ready to start blocking.")
+        warn("Observe mode: all actions are ALLOWED but logged.")
+        info("Run 'agsec audit --stats' to see what would be blocked.")
+        info("Run 'agsec enforce' when ready to start blocking.")
     else:
-        print("Next steps:")
-        print("  1. Edit policies to match your needs")
-        print("  2. Run 'agsec validate' to check for errors")
-        print("  3. Run 'agsec install claude-code' or 'agsec install codex' to activate")
+        info("Next steps:")
+        info("  1. Edit policies to match your needs")
+        info("  2. Run 'agsec validate' to check for errors")
+        info("  3. Run 'agsec install claude-code' or 'agsec install codex' to activate")

@@ -34,6 +34,7 @@ class AuditStore:
 
         self.conn.row_factory = sqlite3.Row
         self._init_db()
+        self._auto_prune()
 
     def __enter__(self):
         return self
@@ -60,15 +61,25 @@ class AuditStore:
                 policy_status TEXT NOT NULL,
                 policy_reason TEXT,
                 context TEXT,
-                error TEXT
+                error TEXT,
+                outcome TEXT
             )
         """)
+        self.conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_executions_timestamp
+            ON executions(timestamp)
+        """)
+        # Migrate existing databases that don't have the outcome column
+        try:
+            self.conn.execute("SELECT outcome FROM executions LIMIT 1")
+        except sqlite3.OperationalError:
+            self.conn.execute("ALTER TABLE executions ADD COLUMN outcome TEXT")
         self.conn.commit()
 
-    def log_execution(self, execution: ActionExecutionResult, context: Optional[Dict[str, Any]] = None, error: Optional[str] = None) -> None:
+    def log_execution(self, execution: ActionExecutionResult, context: Optional[Dict[str, Any]] = None, error: Optional[str] = None, outcome: Optional[str] = None) -> None:
         self.conn.execute("""
-            INSERT INTO executions (timestamp, action, params, result, policy_status, policy_reason, context, error)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO executions (timestamp, action, params, result, policy_status, policy_reason, context, error, outcome)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             datetime.utcnow().isoformat(),
             execution.action,
@@ -77,7 +88,8 @@ class AuditStore:
             execution.policy.status.value,
             execution.policy.reason,
             json.dumps(context, default=str) if context else None,
-            error
+            error,
+            outcome,
         ))
         self.conn.commit()
 
@@ -126,6 +138,30 @@ class AuditStore:
         query += " ORDER BY timestamp DESC LIMIT 100000"
         rows = self.conn.execute(query, params).fetchall()
         return [dict(row) for row in rows]
+
+    def prune(self, days: int = 7) -> int:
+        """Delete audit records older than N days. Returns count deleted."""
+        cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+        cursor = self.conn.execute("DELETE FROM executions WHERE timestamp < ?", (cutoff,))
+        self.conn.commit()
+        return cursor.rowcount
+
+    def clear(self) -> int:
+        """Delete ALL audit records. Returns count deleted."""
+        cursor = self.conn.execute("DELETE FROM executions")
+        self.conn.commit()
+        return cursor.rowcount
+
+    def _auto_prune(self) -> None:
+        """Auto-prune if AGSEC_AUDIT_RETENTION_DAYS is set."""
+        retention = os.environ.get("AGSEC_AUDIT_RETENTION_DAYS")
+        if retention is not None:
+            try:
+                days = int(retention)
+                if days > 0:
+                    self.prune(days=days)
+            except ValueError:
+                pass
 
     def export_to_json(self, file_path: str) -> None:
         executions = self.get_executions(limit=10000)

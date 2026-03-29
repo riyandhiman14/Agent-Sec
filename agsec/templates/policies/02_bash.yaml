@@ -21,15 +21,35 @@ statements:
         value: "(chmod\\s+777|mkfs\\.|dd\\s+if=|shred\\s|wipe\\s)"
     reason: "Destructive filesystem command blocked"
 
-  # Block destructive database commands
-  - sid: "BlockDestructiveSQL"
+  # Block DDL commands (DROP, TRUNCATE, ALTER DROP)
+  - sid: "BlockDDL"
     effect: deny
     actions: ["bash.execute"]
     conditions:
       params.command:
         op: "regex"
-        value: "(?i)(DROP\\s+(TABLE|DATABASE)|TRUNCATE\\s+TABLE|DELETE\\s+FROM\\s+\\S+\\s*$)"
-    reason: "Destructive database command blocked"
+        value: "(?i)(DROP\\s+(TABLE|DATABASE)|TRUNCATE\\s+TABLE|ALTER\\s+TABLE\\s+\\S+\\s+DROP)"
+    reason: "Destructive DDL command blocked — agents should not modify database schema"
+
+  # Block DML commands (DELETE, UPDATE, INSERT, MERGE)
+  - sid: "BlockDML"
+    effect: deny
+    actions: ["bash.execute"]
+    conditions:
+      params.command:
+        op: "regex"
+        value: "(?i)(DELETE\\s+FROM|UPDATE\\s+\\S+\\s+SET|INSERT\\s+INTO|MERGE\\s+INTO)"
+    reason: "Direct SQL data modification blocked — use application layer for data changes"
+
+  # Block direct access to agsec audit database
+  - sid: "BlockAuditDBAccess"
+    effect: deny
+    actions: ["bash.execute"]
+    conditions:
+      params.command:
+        op: "regex"
+        value: "(sqlite3|psql|mysql|mongosh?)\\s+.*(\\.agsec/|audit\\.db)"
+    reason: "Direct access to audit database is blocked — protects audit trail integrity"
 
   # Block direct access to secrets via bash
   - sid: "BlockSecretAccess"
@@ -50,6 +70,16 @@ statements:
         op: "regex"
         value: "(curl|wget|nc|ncat).*(-d|--data|--upload|-T).*(\\.env|credentials|secret|password|token)"
     reason: "Potential data exfiltration blocked"
+
+  # Block encoded command execution (base64/hex decode piped to shell)
+  - sid: "BlockEncodedExecution"
+    effect: deny
+    actions: ["bash.execute"]
+    conditions:
+      params.command:
+        op: "regex"
+        value: "(base64\\s+-d|xxd\\s+-r|python[23]?\\s+-c\\s+['\"]*(exec|eval|import)|perl\\s+-e|ruby\\s+-e).*(\\||;)\\s*(sh|bash|zsh|exec)"
+    reason: "Encoded command execution blocked — potential policy bypass"
 
   # Allow other bash commands
   - sid: "AllowBash"

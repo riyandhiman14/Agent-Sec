@@ -31,6 +31,72 @@ from .conditions import (  # noqa: F401 — re-export
 from ._base import build_engine, check_tool
 
 
+class _GuardedStream:
+    """Wraps OpenAI Stream, checks tool calls after completion.
+
+    Yields all chunks transparently. After iteration completes,
+    check ._agsec_blocked for any tool calls that violate policy.
+    """
+
+    def __init__(self, stream, engine):
+        self._stream = stream
+        self._engine = engine
+        self._accumulated = {}
+        self._agsec_blocked = []
+
+    def __iter__(self):
+        for chunk in self._stream:
+            self._accumulate(chunk)
+            yield chunk
+        self._check_policy()
+
+    def __enter__(self):
+        if hasattr(self._stream, "__enter__"):
+            self._stream.__enter__()
+        return self
+
+    def __exit__(self, *args):
+        if hasattr(self._stream, "__exit__"):
+            return self._stream.__exit__(*args)
+
+    @property
+    def response(self):
+        return getattr(self._stream, "response", None)
+
+    def _accumulate(self, chunk):
+        if not hasattr(chunk, "choices") or not chunk.choices:
+            return
+        delta = chunk.choices[0].delta if hasattr(chunk.choices[0], "delta") else None
+        if not delta:
+            return
+        tool_calls = getattr(delta, "tool_calls", None)
+        if not tool_calls:
+            return
+        for tc in tool_calls:
+            idx = tc.index
+            if idx not in self._accumulated:
+                self._accumulated[idx] = {"id": "", "name": "", "arguments": ""}
+            if tc.id:
+                self._accumulated[idx]["id"] = tc.id
+            if tc.function:
+                if tc.function.name:
+                    self._accumulated[idx]["name"] = tc.function.name
+                if tc.function.arguments:
+                    self._accumulated[idx]["arguments"] += tc.function.arguments
+
+    def _check_policy(self):
+        for idx, tc in self._accumulated.items():
+            status, reason, metadata = check_tool(self._engine, tc["name"], tc["arguments"])
+            if status != PolicyStatus.ALLOW:
+                self._agsec_blocked.append({
+                    "tool_call_id": tc["id"],
+                    "name": tc["name"],
+                    "status": status.value,
+                    "reason": reason,
+                    "sid": metadata.get("sid", ""),
+                })
+
+
 def protect(
     client: Any,
     *rules: ToolRule,
@@ -62,10 +128,8 @@ def protect(
 
     def wrapped_create(*args, **kwargs):
         if kwargs.get("stream", False):
-            raise NotImplementedError(
-                "agsec does not yet support streaming responses. "
-                "Use stream=False or call the original client directly."
-            )
+            stream = original_create(*args, **kwargs)
+            return _GuardedStream(stream, engine)
 
         response = original_create(*args, **kwargs)
 

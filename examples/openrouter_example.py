@@ -69,7 +69,7 @@ tools = [
 
 # Use any model available on OpenRouter
 response = client.chat.completions.create(
-    model="meta-llama/llama-3-70b-instruct",
+    model="minimax/minimax-m2.5:free",
     messages=[{"role": "user", "content": "Search for the latest AI security news"}],
     tools=tools,
 )

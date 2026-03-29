@@ -79,6 +79,30 @@ print(result.metadata["sid"])     # "BlockFileDelete"
 print(result.metadata["matched_by"])  # "explicit_deny"
 ```
 
+### LayeredPolicyEngine
+
+Compose multiple policy engines as layers — like AWS IAM permission boundaries. Each layer is a gate: all must allow.
+
+```python
+from agsec.policy import PolicyEngine, LayeredPolicyEngine
+
+layered = LayeredPolicyEngine()
+
+# Project policies (default deny)
+project = PolicyEngine()
+project.load_from_directory("./policies/")
+layered.add_layer("project", project)
+
+# Agent-specific restrictions (default allow — can only add restrictions)
+from agsec.types import PolicyStatus
+agent = PolicyEngine()
+agent.load_from_directory("~/.agsec/agents/my-agent/")
+agent._default = PolicyStatus.ALLOW
+layered.add_layer("agent", agent)
+
+result = layered.evaluate("bash.execute", {"command": "ls"})
+```
+
 ### Validation
 
 ```python
@@ -100,11 +124,23 @@ with AuditStore("./audit.db") as audit:
     executions = audit.get_executions(action="payment.charge", limit=50)
     stats = audit.get_execution_stats()
     audit.export_to_json("export.json")
+
+    # Time-filtered queries
+    recent = audit.get_executions_since(hours=24)
+
+    # Retention
+    deleted = audit.prune(days=7)      # delete records older than 7 days
+    deleted = audit.clear()             # delete all records
 ```
 
 Stats returns:
 ```python
 {"total_executions": 142, "allowed": 100, "blocked": 30, "reviewed": 12, "errors": 0}
+```
+
+Auto-prune via environment variable:
+```bash
+export AGSEC_AUDIT_RETENTION_DAYS=7
 ```
 
 ## Types

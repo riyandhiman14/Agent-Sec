@@ -18,7 +18,7 @@ statements:
     conditions:
       params.file_path:
         op: "regex"
-        value: "(\\.agsec\\.yaml|policies/.*\\.ya?ml|\\.claude/settings.*\\.json|\\.codex/hooks\\.json)"
+        value: "(\\.agsec\\.yaml|policies/.*\\.ya?ml|\\.claude/settings.*\\.json|\\.codex/hooks\\.json|\\.cursor/hooks\\.json|\\.windsurf/settings.*\\.json|\\.clinerules/hooks/|\\.github/hooks/hooks\\.json|\\.copilot/hooks/hooks\\.json)"
     reason: "Writing to agsec policies or hook config is blocked"
 
   # Block writes to system directories

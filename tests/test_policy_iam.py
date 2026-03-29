@@ -903,3 +903,67 @@ statements: []
         engine.load_from_file(path)
         result = engine.evaluate("anything", {})
         assert result.metadata["matched_by"] == "default"
+
+
+class TestInputNormalization:
+    """Test that encoding bypasses are caught via input normalization."""
+
+    def _make_engine(self, tmp_path):
+        path = _write_policy(tmp_path, "policy.yaml", """
+version: "1.0"
+default: allow
+statements:
+  - sid: "BlockRM"
+    effect: deny
+    actions: ["bash.execute"]
+    conditions:
+      params.command:
+        op: "regex"
+        value: "\\\\brm\\\\s"
+    reason: "rm blocked"
+  - sid: "BlockDrop"
+    effect: deny
+    actions: ["bash.execute"]
+    conditions:
+      params.command:
+        op: "regex"
+        value: "(?i)DROP\\\\s+TABLE"
+    reason: "DROP TABLE blocked"
+""")
+        engine = PolicyEngine()
+        engine.load_from_file(path)
+        return engine
+
+    def test_base64_decoded_and_matched(self, tmp_path):
+        engine = self._make_engine(tmp_path)
+        # "rm -rf /" base64 = "cm0gLXJmIC8="
+        result = engine.evaluate("bash.execute", {"command": "cm0gLXJmIC8="})
+        assert result.status == PolicyStatus.BLOCK
+
+    def test_unicode_escape_decoded(self, tmp_path):
+        engine = self._make_engine(tmp_path)
+        # D\u0052OP TABLE -> DROP TABLE
+        result = engine.evaluate("bash.execute", {"command": "D\\u0052OP TABLE users"})
+        assert result.status == PolicyStatus.BLOCK
+
+    def test_hex_escape_decoded(self, tmp_path):
+        engine = self._make_engine(tmp_path)
+        # \x72\x6d = rm
+        result = engine.evaluate("bash.execute", {"command": "\\x72\\x6d -rf /"})
+        assert result.status == PolicyStatus.BLOCK
+
+    def test_normal_string_unchanged(self, tmp_path):
+        engine = self._make_engine(tmp_path)
+        result = engine.evaluate("bash.execute", {"command": "ls -la"})
+        assert result.status == PolicyStatus.ALLOW
+
+    def test_non_base64_not_decoded(self, tmp_path):
+        engine = self._make_engine(tmp_path)
+        # "hello world" has spaces, not treated as base64
+        result = engine.evaluate("bash.execute", {"command": "hello world"})
+        assert result.status == PolicyStatus.ALLOW
+
+    def test_normal_rm_still_blocked(self, tmp_path):
+        engine = self._make_engine(tmp_path)
+        result = engine.evaluate("bash.execute", {"command": "rm -rf /tmp"})
+        assert result.status == PolicyStatus.BLOCK

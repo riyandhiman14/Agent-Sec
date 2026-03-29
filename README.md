@@ -58,10 +58,13 @@ agsec install claude-code     # activate the firewall
 Done. Every tool call is now checked against your policies. Out of the box, the following are blocked:
 
 - `rm`, `rm -rf`, `rmdir` — destructive deletes
-- Writes to `.env`, `.env.*`, secrets files
-- `git push --force` — force pushes
-- `DROP TABLE`, `DELETE FROM` without WHERE — destructive SQL
-- Reads of `~/.ssh`, `~/.aws`, `~/.gnupg` — credential directories
+- Reads and writes to `.env`, credentials, SSH keys, cloud credentials
+- `git push --force`, `git reset --hard` — destructive git
+- `DROP TABLE`, `TRUNCATE`, `ALTER DROP` — DDL commands
+- `DELETE FROM`, `UPDATE SET`, `INSERT INTO` — DML commands
+- `sqlite3 audit.db`, `psql audit.db` — audit database tampering
+- `chmod 777`, `mkfs`, `dd`, `shred` — destructive filesystem ops
+- Direct push to `main`, `master`, `production` branches
 
 ---
 
@@ -73,7 +76,7 @@ agsec audit --stats           # see what would have been blocked
 agsec enforce                 # start blocking when ready
 ```
 
-Observe mode gives you a full audit trail of every action your agent attempted — with zero disruption to your workflow. See the blast radius before you enforce it.
+Observe mode gives you a full audit trail of every action your agent attempted — with zero disruption to your workflow. See the blast radius before you enforce it. Every action is logged with its actual outcome, so `agsec analyze` accurately shows what got through vs what would have been blocked.
 
 ---
 
@@ -110,7 +113,7 @@ statements:
     actions: ["bash.execute"]
 ```
 
-Three effects: `allow`, `deny`, `review` (human-in-the-loop pause). Deny always wins — same evaluation logic as AWS IAM. Layered policy evaluation (project + agent layers) where each layer is a gate. Supports 14 condition operators: `==`, `!=`, `>`, `<`, `>=`, `<=`, `in`, `not_in`, `contains`, `starts_with`, `ends_with`, `regex`, `exists`, `not_exists`.
+Three effects: `allow`, `deny`, `review` (human-in-the-loop pause). Deny always wins — same evaluation logic as AWS IAM. Layered policy evaluation (project + agent layers) where each layer is a gate. 21 built-in threat patterns for blast radius analysis. Supports 14 condition operators: `==`, `!=`, `>`, `<`, `>=`, `<=`, `in`, `not_in`, `contains`, `starts_with`, `ends_with`, `regex`, `exists`, `not_exists`.
 
 ---
 
@@ -182,6 +185,8 @@ agsec validate                # check for errors
 
 agsec audit [--stats]         # view action log
 agsec analyze [--hours N]     # threat analysis with blast radius
+agsec analyze --all           # full activity report (every action)
+agsec status                  # firewall status at a glance
 agsec observe                 # switch to observe mode
 agsec enforce                 # switch to enforce mode
 

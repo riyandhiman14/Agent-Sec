@@ -54,6 +54,19 @@ class ThreatReport:
 THREAT_PATTERNS: List[ThreatPattern] = [
     # CRITICAL
     ThreatPattern(
+        id="read_secrets",
+        name="Reading secret files",
+        severity=Severity.CRITICAL,
+        action_types=["file.read"],
+        param_field="file_path",
+        regex=r"(\.env$|\.env\..+|credentials\.json|secrets\.ya?ml|\.ssh/|id_rsa|\.aws/credentials|\.gcloud/|service[_-]account.*\.json)",
+        consequence=(
+            "Secrets exposed to agent context \u2014 API keys, credentials, or private keys "
+            "readable by the agent and potentially exfiltrated in subsequent actions"
+        ),
+        recommendation="Add a deny rule for file.read on sensitive file patterns",
+    ),
+    ThreatPattern(
         id="secret_access",
         name="Secret access via bash",
         severity=Severity.CRITICAL,
@@ -80,17 +93,56 @@ THREAT_PATTERNS: List[ThreatPattern] = [
         recommendation="Ensure BlockDataExfiltration policy (02_bash.yaml) is enforced",
     ),
     ThreatPattern(
-        id="destructive_sql",
-        name="Destructive SQL",
+        id="encoded_execution",
+        name="Encoded command execution",
         severity=Severity.CRITICAL,
         action_types=["bash.execute"],
         param_field="command",
-        regex=r"(?i)(DROP\s+(TABLE|DATABASE)|TRUNCATE\s+TABLE|DELETE\s+FROM\s+\S+\s*$)",
+        regex=r"(base64\s+-d|xxd\s+-r|python[23]?\s+-c\s+['\"]*(exec|eval|import)|perl\s+-e|ruby\s+-e).*(\|)\s*(sh|bash|zsh|exec)",
+        consequence=(
+            "Agent attempting to decode and execute hidden commands \u2014 "
+            "likely policy bypass attempt"
+        ),
+        recommendation="Investigate: agent used encoding to hide its true intent",
+    ),
+    ThreatPattern(
+        id="destructive_sql",
+        name="Destructive SQL (DDL)",
+        severity=Severity.CRITICAL,
+        action_types=["bash.execute"],
+        param_field="command",
+        regex=r"(?i)(DROP\s+(TABLE|DATABASE)|TRUNCATE\s+TABLE|ALTER\s+TABLE\s+\S+\s+DROP)",
         consequence=(
             "Irreversible database destruction \u2014 tables or entire databases "
             "dropped with no recovery without backups"
         ),
         recommendation="Ensure BlockDestructiveSQL policy (02_bash.yaml) is enforced",
+    ),
+    ThreatPattern(
+        id="dml_sql",
+        name="Data modification SQL (DML)",
+        severity=Severity.HIGH,
+        action_types=["bash.execute"],
+        param_field="command",
+        regex=r"(?i)(DELETE\s+FROM|UPDATE\s+\S+\s+SET|INSERT\s+INTO|MERGE\s+INTO)",
+        consequence=(
+            "Direct database modification via SQL \u2014 data corruption, "
+            "unauthorized changes, or audit trail manipulation"
+        ),
+        recommendation="Review raw SQL commands — use application layer for data changes",
+    ),
+    ThreatPattern(
+        id="audit_tampering",
+        name="Audit database access",
+        severity=Severity.CRITICAL,
+        action_types=["bash.execute"],
+        param_field="command",
+        regex=r"(sqlite3|psql|mysql|mongosh?)\s+.*(\\.agsec/|audit\.db)",
+        consequence=(
+            "Direct access to audit database \u2014 attacker could read, modify, "
+            "or wipe the audit trail to cover tracks"
+        ),
+        recommendation="URGENT: Agent accessed audit database directly \u2014 investigate immediately",
     ),
     # HIGH
     ThreatPattern(
@@ -118,6 +170,45 @@ THREAT_PATTERNS: List[ThreatPattern] = [
             "dd/shred destroys data at block level"
         ),
         recommendation="Ensure BlockDestructiveFS policy (02_bash.yaml) is enforced",
+    ),
+    ThreatPattern(
+        id="read_system",
+        name="Reading system files",
+        severity=Severity.HIGH,
+        action_types=["file.read"],
+        param_field="file_path",
+        regex=r"^/(etc|proc|sys|boot|root)/",
+        consequence=(
+            "System file contents exposed \u2014 /etc/passwd, /etc/shadow, or process info "
+            "leaking to agent context"
+        ),
+        recommendation="Add a deny rule for file.read on system directories",
+    ),
+    ThreatPattern(
+        id="read_policy",
+        name="Reading policy/guardrail config",
+        severity=Severity.HIGH,
+        action_types=["file.read"],
+        param_field="file_path",
+        regex=r"(\.agsec\.yaml|policies/.*\.ya?ml|\.claude/settings.*\.json|\.codex/hooks\.json|\.cursor/hooks\.json|\.windsurf/settings.*\.json|\.clinerules/hooks/|\.github/hooks/hooks\.json|\.copilot/hooks/hooks\.json)",
+        consequence=(
+            "Agent reading its own guardrails \u2014 could learn what's blocked "
+            "and craft bypass strategies"
+        ),
+        recommendation="Add a deny rule for file.read on policy and hook config files",
+    ),
+    ThreatPattern(
+        id="notebook_sensitive",
+        name="Notebook edit of sensitive file",
+        severity=Severity.HIGH,
+        action_types=["notebook.edit"],
+        param_field="file_path",
+        regex=r"(\.env$|\.env\..+|credentials\.json|secrets\.ya?ml|\.ssh/|id_rsa|\.aws/credentials)",
+        consequence=(
+            "Credential tampering via notebook \u2014 same risk as direct file.write "
+            "to sensitive files"
+        ),
+        recommendation="Add notebook.edit to the BlockWriteSensitive policy in 03_files.yaml",
     ),
     ThreatPattern(
         id="write_sensitive",
@@ -151,7 +242,7 @@ THREAT_PATTERNS: List[ThreatPattern] = [
         severity=Severity.HIGH,
         action_types=["file.write", "file.edit"],
         param_field="file_path",
-        regex=r"(\.agsec\.yaml|policies/.*\.ya?ml|\.claude/settings.*\.json|\.codex/hooks\.json)",
+        regex=r"(\.agsec\.yaml|policies/.*\.ya?ml|\.claude/settings.*\.json|\.codex/hooks\.json|\.cursor/hooks\.json|\.windsurf/settings.*\.json|\.clinerules/hooks/|\.github/hooks/hooks\.json|\.copilot/hooks/hooks\.json)",
         consequence=(
             "Policy escape \u2014 agent modifying its own guardrails "
             "could disable all protections"
@@ -197,6 +288,19 @@ THREAT_PATTERNS: List[ThreatPattern] = [
             "bypasses PR review and CI checks"
         ),
         recommendation="Ensure BlockPushProtected policy (05_git.yaml) is enforced",
+    ),
+    ThreatPattern(
+        id="scan_secrets",
+        name="Scanning for secrets",
+        severity=Severity.MEDIUM,
+        action_types=["file.glob", "file.grep"],
+        param_field="pattern",
+        regex=r"(\.env|credentials|secret|password|private_key|id_rsa|\.aws|\.ssh|token)",
+        consequence=(
+            "Agent actively searching for secret files \u2014 "
+            "reconnaissance step before exfiltration"
+        ),
+        recommendation="Monitor file.glob and file.grep patterns for sensitive keywords",
     ),
     ThreatPattern(
         id="external_fetch",
@@ -246,6 +350,7 @@ class ThreatClassifier:
         for row in executions:
             action = row.get("action", "")
             policy_status = row.get("policy_status", "allow")
+            outcome = row.get("outcome")  # "allowed", "blocked", "review", or None (legacy)
 
             # Parse params
             raw_params = row.get("params", "{}")
@@ -273,10 +378,17 @@ class ThreatClassifier:
                     policy_status=policy_status,
                 )
 
-                if policy_status == "block":
+                # Use outcome if available (new logs), fall back to policy_status (legacy)
+                if outcome:
+                    actually_blocked = outcome == "blocked"
+                else:
+                    # Legacy rows: no outcome column, use policy_status
+                    actually_blocked = policy_status == "block"
+
+                if actually_blocked:
                     blocked.append(finding)
                 else:
-                    # "allow" and "review" are real threats
+                    # "allowed" and "review" = action got through = threat
                     threats.append(finding)
 
         # Calculate blast radius from threats only

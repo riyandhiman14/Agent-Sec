@@ -8,6 +8,7 @@ import sys
 import yaml
 
 from ..config import find_policy_dir
+from ..output import error, info, plain, status_allow, status_block, status_review, subheading, success
 
 # Known actions for interactive picker
 KNOWN_ACTIONS = {
@@ -303,7 +304,7 @@ def run_add(args):
     try:
         policy_dir = find_policy_dir()
     except FileNotFoundError:
-        print("No policies directory found. Run 'agsec init' first.", file=sys.stderr)
+        error("No policies directory found. Run 'agsec init' first.")
         sys.exit(1)
 
     # Interactive mode if required args are missing
@@ -336,7 +337,7 @@ def run_add(args):
                     key, op, value = _parse_condition(cond_str)
                     conditions[key] = {"op": op, "value": value}
                 except ValueError as e:
-                    print(f"Error: {e}", file=sys.stderr)
+                    error(str(e))
                     sys.exit(1)
 
     # Build statement
@@ -364,7 +365,7 @@ def run_add(args):
     existing = doc.get("statements", [])
     for s in existing:
         if s.get("sid") == sid:
-            print(f"Error: Statement '{sid}' already exists in {os.path.basename(target)}", file=sys.stderr)
+            error(f"Statement '{sid}' already exists in {os.path.basename(target)}")
             sys.exit(1)
 
     existing.append(statement)
@@ -374,23 +375,26 @@ def run_add(args):
         yaml.dump(doc, f, default_flow_style=False, sort_keys=False)
 
     # Summary
-    print(f"\n  Added to {os.path.basename(target)}:")
-    icon = {"deny": "X", "allow": "+", "review": "?"}
-    print(f"  [{icon.get(effect, ' ')}] {sid} ({effect.upper()})")
-    print(f"      Actions: {', '.join(actions)}")
+    success(f"Added to {os.path.basename(target)}:")
+    line = f"{sid} ({effect.upper()})  {', '.join(actions)}"
+    if effect == "allow":
+        status_allow(line)
+    elif effect in ("deny", "block"):
+        status_block(line)
+    else:
+        status_review(line)
     if conditions:
         for key, cond in conditions.items():
-            print(f"      Condition: {key} {cond['op']} {cond.get('value', '')}")
+            info(f"      Condition: {key} {cond['op']} {cond.get('value', '')}")
     if reason:
-        print(f"      Reason: {reason}")
-    print()
+        info(f"      Reason: {reason}")
 
 
 def run_remove(args):
     try:
         policy_dir = find_policy_dir()
     except FileNotFoundError:
-        print("No policies directory found.", file=sys.stderr)
+        error("No policies directory found.")
         sys.exit(1)
 
     files = sorted(
@@ -412,12 +416,12 @@ def run_remove(args):
             doc["statements"] = statements
             with open(path, "w") as f:
                 yaml.dump(doc, f, default_flow_style=False, sort_keys=False)
-            print(f"Removed statement '{args.sid}' from {filename}")
+            success(f"Removed statement '{args.sid}' from {filename}")
             found = True
             break
 
     if not found:
-        print(f"Statement '{args.sid}' not found in any policy file.", file=sys.stderr)
+        error(f"Statement '{args.sid}' not found in any policy file.")
         sys.exit(1)
 
 
@@ -425,7 +429,8 @@ def run_list(args):
     try:
         policy_dir = find_policy_dir()
     except FileNotFoundError:
-        print("No policies directory found. Run 'agsec init' first.", file=sys.stderr)
+        error("No policies directory found.")
+        info("Run 'agsec init' first.")
         sys.exit(1)
 
     files = sorted(
@@ -434,7 +439,7 @@ def run_list(args):
     )
 
     if not files:
-        print("No policy files found.")
+        info("No policy files found.")
         return
 
     total = 0
@@ -450,29 +455,32 @@ def run_list(args):
         if not statements and not rules:
             continue
 
-        print(f"\n{filename}" + (f"  (default: {default})" if default else ""))
-        print("-" * 60)
+        subheading(f"{filename}" + (f"  (default: {default})" if default else ""))
 
         for s in statements:
             sid = s.get("sid", "(no sid)")
             effect = s.get("effect", "?").upper()
             actions = s.get("actions", ["*"])
             reason = s.get("reason", "")
-            icon = {"ALLOW": "+", "DENY": "X", "BLOCK": "X", "REVIEW": "?"}
-            marker = icon.get(effect, " ")
 
-            print(f"  [{marker}] {sid:30s} {effect:6s}  {', '.join(actions)}")
+            line = f"{sid:30s} {effect:6s}  {', '.join(actions)}"
+            if effect in ("DENY", "BLOCK"):
+                status_block(line)
+            elif effect == "ALLOW":
+                status_allow(line)
+            else:
+                status_review(line)
             if reason:
-                print(f"      {reason}")
+                info(f"      {reason}")
             total += 1
 
         for r in rules:
             action = r.get("action", "*")
             status = r.get("status", "?").upper()
             reason = r.get("reason", "")
-            print(f"  [ ] (legacy rule)              {status:6s}  {action}")
+            plain(f"  [ ] (legacy rule)              {status:6s}  {action}")
             if reason:
-                print(f"      {reason}")
+                info(f"      {reason}")
             total += 1
 
-    print(f"\n{total} statement(s) across {len(files)} file(s)")
+    plain(f"\n{total} statement(s) across {len(files)} file(s)")

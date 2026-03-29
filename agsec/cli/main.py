@@ -7,13 +7,16 @@ import sys
 
 
 def main():
+    from .. import __version__
+
     parser = argparse.ArgumentParser(
         prog="agsec",
         description="AI Agent Action Firewall — enforce policies on agent actions",
     )
+    parser.add_argument("--version", action="version", version=f"agsec {__version__}")
     subparsers = parser.add_subparsers(dest="command")
 
-    from .commands import analyze, audit, check, init, install, mode, policy, validate
+    from .commands import analyze, audit, check, init, install, mode, policy, status, validate
 
     init.register(subparsers)
     check.register(subparsers)
@@ -23,6 +26,7 @@ def main():
     policy.register(subparsers)
     audit.register(subparsers)
     analyze.register(subparsers)
+    status.register(subparsers)
     mode.register_observe(subparsers)
     mode.register_enforce(subparsers)
     mode.register_halt(subparsers)

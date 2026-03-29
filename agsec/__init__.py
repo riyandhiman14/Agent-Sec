@@ -1,3 +1,5 @@
+__version__ = "0.2.2"
+
 from .audit import AuditStore
 from .control import ControlLayer
 from .guard import guard

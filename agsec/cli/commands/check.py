@@ -123,11 +123,23 @@ def run(args):
     mode = load_mode()
     context["agsec_mode"] = mode
 
+    # Determine actual outcome: what really happened to this action
+    if mode == "halt":
+        outcome = "blocked"
+    elif mode == "observe":
+        outcome = "allowed"  # observe lets everything through
+    elif result.status == PolicyStatus.BLOCK:
+        outcome = "blocked"
+    elif result.status == PolicyStatus.REVIEW:
+        outcome = "review"
+    else:
+        outcome = "allowed"
+
     # Audit log (never fail the check due to audit)
     try:
-        audit = AuditStore(get_audit_db_path())
-        exec_result = ActionExecutionResult(action=action, params=params, result=None, policy=result)
-        audit.log_execution(exec_result, context)
+        with AuditStore(get_audit_db_path()) as audit:
+            exec_result = ActionExecutionResult(action=action, params=params, result=None, policy=result)
+            audit.log_execution(exec_result, context, outcome=outcome)
     except Exception:
         pass
 

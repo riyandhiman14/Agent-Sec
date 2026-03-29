@@ -178,3 +178,112 @@ statements:
         result = protected.chat.completions.create(model="gpt-4", messages=[])
         assert result.choices[0].message.tool_calls is None
         assert result._agsec_blocked[0]["status"] == "review"
+
+
+# ---------------------------------------------------------------------------
+# Streaming tests
+# ---------------------------------------------------------------------------
+
+
+def _make_stream_chunk(tool_calls=None, finish_reason=None, content=None):
+    """Create a mock OpenAI streaming chunk."""
+    delta = SimpleNamespace()
+    delta.tool_calls = tool_calls
+    delta.content = content
+    delta.role = None
+
+    choice = SimpleNamespace()
+    choice.delta = delta
+    choice.finish_reason = finish_reason
+    choice.index = 0
+
+    chunk = SimpleNamespace()
+    chunk.choices = [choice]
+    chunk.id = "chatcmpl-stream"
+    return chunk
+
+
+def _make_tool_call_delta(index, tc_id=None, name=None, arguments=None):
+    """Create a mock tool call delta for streaming."""
+    tc = SimpleNamespace()
+    tc.index = index
+    tc.id = tc_id
+    tc.function = SimpleNamespace()
+    tc.function.name = name
+    tc.function.arguments = arguments
+    return tc
+
+
+def _make_stream_client(chunks):
+    """Create a mock client that returns an iterable stream."""
+    client = MagicMock()
+    client.chat.completions.create = MagicMock(return_value=iter(chunks))
+    return client
+
+
+class TestStreaming:
+    def test_streaming_returns_guarded_stream(self):
+        chunks = [_make_stream_chunk(content="hello")]
+        client = _make_stream_client(chunks)
+        protected = protect(client, allow("search"))
+
+        result = protected.chat.completions.create(model="gpt-4", messages=[], stream=True)
+        # Should not raise NotImplementedError
+        assert hasattr(result, "_agsec_blocked")
+
+    def test_streaming_chunks_yielded_unchanged(self):
+        chunks = [
+            _make_stream_chunk(content="hello"),
+            _make_stream_chunk(content=" world"),
+        ]
+        client = _make_stream_client(chunks)
+        protected = protect(client, allow("search"))
+
+        stream = protected.chat.completions.create(model="gpt-4", messages=[], stream=True)
+        received = list(stream)
+        assert len(received) == 2
+        assert received[0].choices[0].delta.content == "hello"
+        assert received[1].choices[0].delta.content == " world"
+
+    def test_streaming_allowed_tool_not_blocked(self):
+        chunks = [
+            _make_stream_chunk(tool_calls=[_make_tool_call_delta(0, tc_id="tc_1", name="search", arguments='{"qu')]),
+            _make_stream_chunk(tool_calls=[_make_tool_call_delta(0, arguments='ery": "test"}')]),
+            _make_stream_chunk(finish_reason="tool_calls"),
+        ]
+        client = _make_stream_client(chunks)
+        protected = protect(client, allow("search"))
+
+        stream = protected.chat.completions.create(model="gpt-4", messages=[], stream=True)
+        received = list(stream)
+        assert len(received) == 3
+        assert stream._agsec_blocked == []
+
+    def test_streaming_blocked_tool_detected(self):
+        chunks = [
+            _make_stream_chunk(tool_calls=[_make_tool_call_delta(0, tc_id="tc_1", name="delete_user", arguments='{"id')]),
+            _make_stream_chunk(tool_calls=[_make_tool_call_delta(0, arguments='": 123}')]),
+            _make_stream_chunk(finish_reason="tool_calls"),
+        ]
+        client = _make_stream_client(chunks)
+        protected = protect(client, deny("delete_user"))
+
+        stream = protected.chat.completions.create(model="gpt-4", messages=[], stream=True)
+        list(stream)  # consume
+        assert len(stream._agsec_blocked) == 1
+        assert stream._agsec_blocked[0]["name"] == "delete_user"
+        assert stream._agsec_blocked[0]["tool_call_id"] == "tc_1"
+
+    def test_streaming_mixed_tools(self):
+        chunks = [
+            _make_stream_chunk(tool_calls=[_make_tool_call_delta(0, tc_id="tc_1", name="search", arguments='{"query": "test"}')]),
+            _make_stream_chunk(tool_calls=[_make_tool_call_delta(1, tc_id="tc_2", name="delete_user", arguments='{"id": 1}')]),
+            _make_stream_chunk(finish_reason="tool_calls"),
+        ]
+        client = _make_stream_client(chunks)
+        protected = protect(client, allow("search"), deny("delete_user"))
+
+        stream = protected.chat.completions.create(model="gpt-4", messages=[], stream=True)
+        list(stream)
+        assert len(stream._agsec_blocked) == 1
+        assert stream._agsec_blocked[0]["name"] == "delete_user"
