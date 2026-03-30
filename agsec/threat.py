@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
@@ -36,15 +37,42 @@ class ThreatFinding:
 
 
 @dataclass
+class CrossLayerPattern:
+    """Temporal sequence pattern: event_a followed by event_b within max_gap_seconds."""
+    id: str
+    name: str
+    severity: Severity
+    event_a_action_types: List[str]
+    event_a_param_field: str
+    event_a_regex: str
+    event_b_action_types: List[str]
+    event_b_param_field: str
+    event_b_regex: str
+    max_gap_seconds: int  # max time between event_a and event_b
+    consequence: str
+    recommendation: str
+
+
+@dataclass
+class CrossLayerFinding:
+    """A matched cross-layer sequence: event_a then event_b within time window."""
+    pattern: CrossLayerPattern
+    event_a_value: str
+    event_b_value: str
+    gap_seconds: float
+
+
+@dataclass
 class ThreatReport:
     threats: List[ThreatFinding]  # allowed/review — real threats
     blocked: List[ThreatFinding]  # blocked by policy — caught
-    blast_radius: float  # 0.0 - 10.0, only from threats
-    blast_radius_label: str
-    severity_counts: Dict[str, int]  # only from threats
-    blocked_counts: Dict[str, int]  # from blocked
-    total_executions: int
-    recommendations: List[str]
+    cross_layer_findings: List[CrossLayerFinding] = field(default_factory=list)
+    blast_radius: float = 0.0  # 0.0 - 10.0, from threats + cross-layer
+    blast_radius_label: str = "None"
+    severity_counts: Dict[str, int] = field(default_factory=dict)
+    blocked_counts: Dict[str, int] = field(default_factory=dict)
+    total_executions: int = 0
+    recommendations: List[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -80,8 +108,8 @@ THREAT_PATTERNS: List[ThreatPattern] = [
         recommendation="Ensure BlockSecretAccess policy (02_bash.yaml) is enforced",
     ),
     ThreatPattern(
-        id="data_exfiltration",
-        name="Data exfiltration",
+        id="inline_exfiltration",
+        name="Inline data exfiltration",
         severity=Severity.CRITICAL,
         action_types=["bash.execute"],
         param_field="command",
@@ -329,6 +357,79 @@ THREAT_PATTERNS: List[ThreatPattern] = [
         ),
         recommendation="Review agent.spawn permissions if sub-agents are not expected",
     ),
+    # Type 1 cross-layer additions (single-event patterns)
+    ThreatPattern(
+        id="enumeration",
+        name="Secret file enumeration",
+        severity=Severity.HIGH,
+        action_types=["bash.execute"],
+        param_field="command",
+        regex=r"(cat|less|more|head|tail)\s+.*\.(env|aws|ssh|gcloud).*&&.*(cat|less|more|head|tail)\s+.*\.(env|aws|ssh|gcloud|credentials|secret)",
+        consequence=(
+            "Multiple secret files accessed in a single command \u2014 "
+            "reconnaissance pattern suggesting systematic credential harvesting"
+        ),
+        recommendation="Investigate: agent accessed multiple secret files in one command",
+    ),
+]
+
+
+# ---------------------------------------------------------------------------
+# Cross-layer sequence patterns
+# ---------------------------------------------------------------------------
+
+CROSS_LAYER_PATTERNS: List[CrossLayerPattern] = [
+    CrossLayerPattern(
+        id="staged_exfiltration",
+        name="Staged data exfiltration",
+        severity=Severity.CRITICAL,
+        event_a_action_types=["file.read", "bash.execute"],
+        event_a_param_field="file_path,command",
+        event_a_regex=r"(\.env$|\.env\..+|credentials\.json|secrets\.ya?ml|\.ssh/|id_rsa|\.aws/credentials|\.gcloud/|service[_-]account.*\.json|cat\s+.*\.env|cat\s+.*credentials)",
+        event_b_action_types=["bash.execute"],
+        event_b_param_field="command",
+        event_b_regex=r"(curl|wget|nc|ncat).*(-d|--data|--upload|-T|-F|--form)",
+        max_gap_seconds=300,
+        consequence=(
+            "Credential read followed by data upload \u2014 agent may have "
+            "read secrets then exfiltrated them to an external endpoint"
+        ),
+        recommendation="URGENT: Investigate credential access followed by external upload",
+    ),
+    CrossLayerPattern(
+        id="evasion",
+        name="Policy evasion attempt",
+        severity=Severity.HIGH,
+        event_a_action_types=["file.read"],
+        event_a_param_field="file_path",
+        event_a_regex=r"(\.agsec\.yaml|policies/.*\.ya?ml|\.claude/settings.*\.json|\.codex/hooks\.json|\.cursor/hooks\.json)",
+        event_b_action_types=["bash.execute", "file.write", "file.edit"],
+        event_b_param_field="command,file_path",
+        event_b_regex=r"(rm\s|chmod\s+777|git\s+push\s+.*--force|DROP\s+TABLE|curl.*--data)",
+        max_gap_seconds=300,
+        consequence=(
+            "Agent read its guardrail config then attempted a dangerous action \u2014 "
+            "possible policy reconnaissance and bypass attempt"
+        ),
+        recommendation="Investigate: agent may have read policies to find what's unblocked",
+    ),
+    CrossLayerPattern(
+        id="delegation_risk",
+        name="Sensitive read then delegation",
+        severity=Severity.HIGH,
+        event_a_action_types=["file.read", "bash.execute"],
+        event_a_param_field="file_path,command",
+        event_a_regex=r"(\.env$|\.env\..+|credentials\.json|secrets\.ya?ml|\.ssh/|id_rsa|\.aws/credentials|cat\s+.*\.env|cat\s+.*credentials)",
+        event_b_action_types=["agent.spawn"],
+        event_b_param_field="",
+        event_b_regex="",
+        max_gap_seconds=300,
+        consequence=(
+            "Sensitive file read followed by sub-agent spawn \u2014 "
+            "secrets may propagate to child agent with inherited permissions"
+        ),
+        recommendation="Review: sensitive data may have leaked to a spawned sub-agent",
+    ),
 ]
 
 
@@ -340,8 +441,29 @@ THREAT_PATTERNS: List[ThreatPattern] = [
 class ThreatClassifier:
     """Classify audit executions into threat findings with consequences."""
 
-    def __init__(self) -> None:
-        self.patterns = THREAT_PATTERNS
+    def __init__(self, project_root: Optional[str] = None) -> None:
+        self.patterns = list(THREAT_PATTERNS)
+        self.cross_layer_patterns = CROSS_LAYER_PATTERNS
+        self.project_root = project_root
+
+        # Add dynamic scope_violation pattern if project_root is set
+        if project_root:
+            escaped_root = re.escape(project_root)
+            self.patterns.append(
+                ThreatPattern(
+                    id="scope_violation",
+                    name="File access outside project",
+                    severity=Severity.MEDIUM,
+                    action_types=["file.read", "file.write", "file.edit"],
+                    param_field="file_path",
+                    regex=rf"^(?!{escaped_root}|/tmp/|/dev/null)",
+                    consequence=(
+                        "Agent accessed files outside the project directory \u2014 "
+                        "potential scope violation or data leakage"
+                    ),
+                    recommendation="Review file access patterns outside the project directory",
+                ),
+            )
 
     def classify(self, executions: List[Dict[str, Any]]) -> ThreatReport:
         threats: List[ThreatFinding] = []
@@ -391,19 +513,41 @@ class ThreatClassifier:
                     # "allowed" and "review" = action got through = threat
                     threats.append(finding)
 
-        # Calculate blast radius from threats only
+        # Cross-layer sequence detection
+        cross_layer_findings = self.classify_sequences(executions)
+
+        # Calculate blast radius from threats + cross-layer
         severity_counts = self._count_by_severity(threats)
         blocked_counts = self._count_by_severity(blocked)
-        blast_radius = self._calculate_blast_radius(severity_counts)
+
+        # Add cross-layer severity to blast radius
+        cl_severity_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+        for clf in cross_layer_findings:
+            cl_severity_counts[clf.pattern.severity.value] += 1
+
+        combined_severity = {
+            k: severity_counts.get(k, 0) + cl_severity_counts.get(k, 0)
+            for k in severity_counts
+        }
+        blast_radius = self._calculate_blast_radius(combined_severity)
         blast_radius_label = self._label_blast_radius(blast_radius)
 
         recommendations = self._generate_recommendations(
             threats, blocked, severity_counts
         )
 
+        # Add cross-layer recommendations
+        seen_cl_recs: set = set()
+        for clf in cross_layer_findings:
+            rec = clf.pattern.recommendation
+            if rec not in seen_cl_recs and rec not in {r for r in recommendations}:
+                recommendations.append(rec)
+                seen_cl_recs.add(rec)
+
         return ThreatReport(
             threats=threats,
             blocked=blocked,
+            cross_layer_findings=cross_layer_findings,
             blast_radius=blast_radius,
             blast_radius_label=blast_radius_label,
             severity_counts=severity_counts,
@@ -441,6 +585,132 @@ class ThreatClassifier:
             pass
 
         return None
+
+    def classify_sequences(
+        self, executions: List[Dict[str, Any]]
+    ) -> List[CrossLayerFinding]:
+        """Detect temporal sequences: event_a followed by event_b within max_gap."""
+        if not executions or not self.cross_layer_patterns:
+            return []
+
+        # Parse timestamps and sort ascending
+        timed_rows: List[tuple] = []
+        for row in executions:
+            ts_str = row.get("timestamp", "")
+            if not ts_str:
+                continue
+            try:
+                ts = datetime.fromisoformat(ts_str)
+            except (ValueError, TypeError):
+                continue
+            timed_rows.append((ts, row))
+
+        timed_rows.sort(key=lambda x: x[0])
+
+        findings: List[CrossLayerFinding] = []
+        seen_pairs: set = set()  # Deduplicate (pattern_id, a_index, b_index)
+
+        for pattern in self.cross_layer_patterns:
+            for i, (ts_a, row_a) in enumerate(timed_rows):
+                if not self._matches_event(
+                    row_a, pattern.event_a_action_types,
+                    pattern.event_a_param_field, pattern.event_a_regex
+                ):
+                    continue
+
+                # Scan forward for event_b within max_gap
+                for j in range(i + 1, len(timed_rows)):
+                    ts_b, row_b = timed_rows[j]
+                    gap = (ts_b - ts_a).total_seconds()
+
+                    if gap > pattern.max_gap_seconds:
+                        break  # Past the window, stop scanning
+
+                    if gap <= 0:
+                        continue  # Same timestamp, skip
+
+                    if not self._matches_event(
+                        row_b, pattern.event_b_action_types,
+                        pattern.event_b_param_field, pattern.event_b_regex
+                    ):
+                        continue
+
+                    pair_key = (pattern.id, i, j)
+                    if pair_key in seen_pairs:
+                        continue
+                    seen_pairs.add(pair_key)
+
+                    val_a = self._extract_event_value(row_a, pattern.event_a_param_field)
+                    val_b = self._extract_event_value(row_b, pattern.event_b_param_field)
+
+                    findings.append(CrossLayerFinding(
+                        pattern=pattern,
+                        event_a_value=val_a[:120] if len(val_a) > 120 else val_a,
+                        event_b_value=val_b[:120] if len(val_b) > 120 else val_b,
+                        gap_seconds=round(gap, 1),
+                    ))
+                    break  # Found closest match for this event_a, move on
+
+        return findings
+
+    def _matches_event(
+        self, row: Dict[str, Any], action_types: List[str],
+        param_fields: str, regex: str
+    ) -> bool:
+        """Check if a row matches an event spec (action type + regex on param)."""
+        action = row.get("action", "")
+        if action not in action_types:
+            return False
+
+        if not regex:
+            return True  # Match-all (e.g., agent.spawn)
+
+        raw_params = row.get("params", "{}")
+        if isinstance(raw_params, str):
+            try:
+                params = json.loads(raw_params)
+            except (json.JSONDecodeError, TypeError):
+                params = {}
+        elif isinstance(raw_params, dict):
+            params = raw_params
+        else:
+            params = {}
+
+        # param_fields can be comma-separated (e.g., "file_path,command")
+        for pf in param_fields.split(","):
+            pf = pf.strip()
+            value = params.get(pf, "")
+            if not isinstance(value, str):
+                value = str(value)
+            if value:
+                try:
+                    if re.search(regex, value):
+                        return True
+                except re.error:
+                    pass
+
+        return False
+
+    def _extract_event_value(self, row: Dict[str, Any], param_fields: str) -> str:
+        """Extract the first non-empty param value from a row."""
+        raw_params = row.get("params", "{}")
+        if isinstance(raw_params, str):
+            try:
+                params = json.loads(raw_params)
+            except (json.JSONDecodeError, TypeError):
+                return "(no params)"
+        elif isinstance(raw_params, dict):
+            params = raw_params
+        else:
+            return "(no params)"
+
+        for pf in param_fields.split(","):
+            pf = pf.strip()
+            value = params.get(pf, "")
+            if value:
+                return str(value)
+
+        return "(action matched)"
 
     def _count_by_severity(
         self, findings: List[ThreatFinding]
@@ -547,3 +817,33 @@ def group_findings(
         groups.values(), key=lambda g: severity_order.get(g["severity"], 99)
     )
     return result
+
+
+def group_cross_layer_findings(
+    findings: List[CrossLayerFinding],
+) -> List[Dict[str, Any]]:
+    """Group cross-layer findings by pattern ID for display."""
+    groups: Dict[str, Dict[str, Any]] = {}
+    for f in findings:
+        pid = f.pattern.id
+        if pid not in groups:
+            groups[pid] = {
+                "id": pid,
+                "name": f.pattern.name,
+                "severity": f.pattern.severity.value,
+                "consequence": f.pattern.consequence,
+                "count": 0,
+                "sequences": [],
+            }
+        groups[pid]["count"] += 1
+        if len(groups[pid]["sequences"]) < 3:
+            groups[pid]["sequences"].append({
+                "event_a": f.event_a_value,
+                "event_b": f.event_b_value,
+                "gap_seconds": f.gap_seconds,
+            })
+
+    severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+    return sorted(
+        groups.values(), key=lambda g: severity_order.get(g["severity"], 99)
+    )

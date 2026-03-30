@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="agsec",
-    version="0.2.2",
+    version="0.2.3",
     author="Riyandhiman",
     author_email="noreply@example.com",
     description="AI Agent Action Firewall core SDK",
