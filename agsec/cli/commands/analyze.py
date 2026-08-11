@@ -6,7 +6,7 @@ import json
 import sys
 
 from ...audit import AuditStore
-from ...threat import Severity, ThreatClassifier, group_findings
+from ...threat import Severity, ThreatClassifier, group_findings, group_cross_layer_findings
 from ..config import get_audit_db_path, load_mode
 from ..output import (
     error, heading, info, mode_label, plain, severity_label,
@@ -121,6 +121,22 @@ def _render_human(report, mode, args):
         success("No unblocked threats detected.")
         plain("")
 
+    # Cross-layer findings (multi-step attack chains)
+    if report.cross_layer_findings:
+        cl_groups = group_cross_layer_findings(report.cross_layer_findings)
+        subheading(f"Cross-Layer Sequences ({len(report.cross_layer_findings)} detected)")
+        info("  Cross-layer findings are retrospective. Enable enforce mode to block individual actions in real-time.")
+        plain("")
+
+        for group in cl_groups:
+            plain(f"  {severity_label(group['severity'])} {group['name']} ({group['count']}x)")
+            for seq in group["sequences"]:
+                info(f"    Step 1: {seq['event_a']}")
+                info(f"    Step 2: {seq['event_b']} ({seq['gap_seconds']}s later)")
+                plain("")
+            info(f"    Impact: {group['consequence']}")
+            plain("")
+
     # Caught by policy
     if report.blocked:
         total_blocked = len(report.blocked)
@@ -140,6 +156,7 @@ def _render_human(report, mode, args):
 def _render_json(report, mode, args):
     threat_groups = group_findings(report.threats)
     blocked_groups = group_findings(report.blocked)
+    cl_groups = group_cross_layer_findings(report.cross_layer_findings)
 
     output = {
         "blast_radius": report.blast_radius,
@@ -148,6 +165,7 @@ def _render_json(report, mode, args):
         "total_executions": report.total_executions,
         "severity_counts": report.severity_counts,
         "threats": threat_groups,
+        "cross_layer_findings": cl_groups,
         "blocked_by_policy": blocked_groups,
         "recommendations": report.recommendations,
     }

@@ -6,14 +6,20 @@
 
 ---
 
-**Your AI agent has shell access. File access. Network access. Git access.**
+**Agent security posture management.** Know what your AI agents can do, what they can see, and what they send out.
 
-**There are no guardrails by default.**
+agsec covers 3 layers of agent security in one `pip install`:
 
-AgSec is a policy engine for AI agents - like AWS IAM, but for what agents can do on your machine. Write declarative YAML policies. Every action gets checked at runtime before it executes. Deny always wins.
+| Layer | Threat | What agsec does |
+|-------|--------|----------------|
+| **Actions** | Destructive commands, file deletion, force push | Block at runtime via YAML policies |
+| **Data visibility** | Agent reads secrets, credentials, SSH keys | Detect and block reads to sensitive files |
+| **Exfiltration** | Agent reads secrets then sends them externally | Cross-layer sequence detection |
 
 ```
 agent wants to act  →  agsec evaluates policy  →  allow / deny / review  →  real world
+                                                         ↓
+                                            agsec analyze → multi-layer posture report
 ```
 
 ---
@@ -30,7 +36,7 @@ agent wants to act  →  agsec evaluates policy  →  allow / deny / review  →
   <img src="assets/claude_blocked.gif" alt="agsec blocks Claude from deleting files" width="720">
 </p>
 
-### agsec analyze — threat analysis
+### agsec analyze — multi-layer threat analysis
 <p align="center">
   <img src="assets/agsec_analyse.gif" alt="agsec analyze command" width="720">
 </p>
@@ -39,11 +45,11 @@ agent wants to act  →  agsec evaluates policy  →  allow / deny / review  →
 
 ## The problem
 
-You give Claude Code, Cursor, or Codex access to your terminal. It tries to be helpful. Sometimes it runs `rm -rf`. Writes to `.env`. Force-pushes to main. Makes an API call you didn't expect.
+88% of organizations reported AI agent security incidents in the last year. Claude Code deleted 2.5 years of production data. Replit AI wiped a live database during code freeze. 66% of MCP servers have security findings.
 
-It's not malicious. It's just that agents have no blast radius limit unless you give them one.
+Developers know the risk but YOLO anyway, because the cost of caring (install a tool, write policies, deal with false positives) exceeds the perceived cost of not caring.
 
-agsec is that limit.
+agsec makes the cost of caring near zero: 3 commands, 30 seconds, full posture visibility.
 
 ---
 
@@ -52,7 +58,7 @@ agsec is that limit.
 ```bash
 pip install agsec
 agsec init                    # scaffold default policies
-agsec install claude-code     # activate the firewall
+agsec install claude-code     # activate enforcement
 ```
 
 Done. Every tool call is now checked against your policies. Out of the box, the following are blocked:
@@ -72,11 +78,34 @@ Done. Every tool call is now checked against your policies. Out of the box, the 
 
 ```bash
 agsec init --observe          # log everything, block nothing
-agsec audit --stats           # see what would have been blocked
+agsec analyze                 # multi-layer threat analysis
 agsec enforce                 # start blocking when ready
 ```
 
-Observe mode gives you a full audit trail of every action your agent attempted — with zero disruption to your workflow. See the blast radius before you enforce it. Every action is logged with its actual outcome, so `agsec analyze` accurately shows what got through vs what would have been blocked.
+Observe mode gives you a full audit trail of every action your agent attempted, with zero disruption to your workflow. `agsec analyze` shows your security posture across all three layers: what got through, what was blocked, and what multi-step attack patterns were detected.
+
+---
+
+## Multi-layer threat analysis
+
+```bash
+agsec analyze                 # posture report with blast radius
+agsec analyze --hours 4       # last 4 hours only
+agsec analyze --json          # machine-readable output
+```
+
+The analyze command detects threats across three layers:
+
+**Layer 1 — Actions:** 27+ threat patterns covering destructive commands, file deletion, SQL injection, encoded execution, audit tampering.
+
+**Layer 2 — Data visibility:** Secret file reads, system file access, policy config reconnaissance, credential enumeration, scope violations (file access outside project directory).
+
+**Layer 3 — Exfiltration (cross-layer):** Temporal sequence detection that correlates events across layers:
+- Secret read → data upload within 5 minutes (staged exfiltration)
+- Policy config read → dangerous action attempt (evasion)
+- Sensitive file read → sub-agent spawn (delegation risk)
+
+Each finding includes severity, blast radius score (0-10), concrete consequences, and actionable recommendations.
 
 ---
 
@@ -113,7 +142,7 @@ statements:
     actions: ["bash.execute"]
 ```
 
-Three effects: `allow`, `deny`, `review` (human-in-the-loop pause). Deny always wins — same evaluation logic as AWS IAM. Layered policy evaluation (project + agent layers) where each layer is a gate. 21 built-in threat patterns for blast radius analysis. Supports 14 condition operators: `==`, `!=`, `>`, `<`, `>=`, `<=`, `in`, `not_in`, `contains`, `starts_with`, `ends_with`, `regex`, `exists`, `not_exists`.
+Three effects: `allow`, `deny`, `review` (human-in-the-loop pause). Deny always wins, same evaluation logic as AWS IAM. Layered policy evaluation (project + agent layers) where each layer is a gate. Supports 14 condition operators: `==`, `!=`, `>`, `<`, `>=`, `<=`, `in`, `not_in`, `contains`, `starts_with`, `ends_with`, `regex`, `exists`, `not_exists`.
 
 ---
 
@@ -130,7 +159,7 @@ agsec install cline           # Cline
 agsec install copilot         # GitHub Copilot (project + user level)
 ```
 
-Claude Code and Claude Cowork are fully tested. Others are functional — community testing welcome.
+Claude Code and Claude Cowork are fully tested. Others are functional, community testing welcome.
 
 ### Python frameworks
 
@@ -175,7 +204,7 @@ def send_email(to, subject, body):
 
 ```bash
 agsec init [--observe]        # scaffold policies
-agsec install <platform>      # activate firewall
+agsec install <platform>      # activate enforcement
 agsec uninstall <platform>    # deactivate
 
 agsec policy list             # view all rules
@@ -184,9 +213,9 @@ agsec policy remove <sid>     # remove a rule
 agsec validate                # check for errors
 
 agsec audit [--stats]         # view action log
-agsec analyze [--hours N]     # threat analysis with blast radius
+agsec analyze [--hours N]     # multi-layer threat analysis
 agsec analyze --all           # full activity report (every action)
-agsec status                  # firewall status at a glance
+agsec status                  # posture status at a glance
 agsec observe                 # switch to observe mode
 agsec enforce                 # switch to enforce mode
 
@@ -215,7 +244,7 @@ agsec addresses 7 of the 10 OWASP Agentic Top 10 risks out of the box. See the [
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Issues and PRs welcome — especially platform testing reports for Codex, Cursor, Windsurf, and Cline.
+See [CONTRIBUTING.md](CONTRIBUTING.md). Issues and PRs welcome, especially platform testing reports for Codex, Cursor, Windsurf, and Cline.
 
 ## License
 

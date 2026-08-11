@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agsec"
-version = "0.2.2"
-description = "AI Agent Action Firewall core SDK"
+version = "0.2.3"
+description = "Agent security posture management — policy engine for AI agents"
 readme = "README.md"
 requires-python = ">=3.8"
 license = {text = "Apache-2.0"}
